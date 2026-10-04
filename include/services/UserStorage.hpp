@@ -61,6 +61,15 @@ public:
             if (user.id <= 0 || user.username.empty() || users.full())
                 continue;
 
+            bool duplicate = false;
+            for (std::size_t i = 0; i < users.size(); ++i) {
+                if (users[i].id == user.id || users[i].username == user.username) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+
             users.pushBack(user);
             if (user.id > maxId) maxId = user.id;
         }
@@ -109,14 +118,31 @@ public:
             output.close();
 
             std::error_code error;
-            std::filesystem::remove(target, error);
+            const std::filesystem::path backup = target.string() + ".bak";
+
+            std::filesystem::remove(backup, error);
+            error.clear();
+
+            const bool hadExistingFile = std::filesystem::exists(target);
+            if (hadExistingFile) {
+                std::filesystem::rename(target, backup, error);
+                if (error) {
+                    std::filesystem::remove(temp, error);
+                    return false;
+                }
+            }
+
             error.clear();
             std::filesystem::rename(temp, target, error);
             if (error) {
-                std::filesystem::remove(temp, error);
+                std::error_code restoreError;
+                if (hadExistingFile && std::filesystem::exists(backup))
+                    std::filesystem::rename(backup, target, restoreError);
+                std::filesystem::remove(temp, restoreError);
                 return false;
             }
 
+            std::filesystem::remove(backup, error);
             return true;
         } catch (...) {
             return false;
