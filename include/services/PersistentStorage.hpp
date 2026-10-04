@@ -289,8 +289,7 @@ public:
         return "data/user_history.txt";
     }
 
-    template <std::size_t Capacity>
-    static bool load(StaticArray<UserActivityEntry, Capacity>& history,
+    static bool load(DynamicArray<UserActivityEntry>& history,
                      long long& nextSequence,
                      const std::string& path = defaultPath()) {
         history.clear();
@@ -333,13 +332,6 @@ public:
 
             if (entry.sequence <= 0 || entry.userId <= 0) continue;
 
-            // Keep the newest Capacity records if a very old log grows large.
-            if (history.full()) {
-                for (std::size_t i = 1; i < history.size(); ++i)
-                    history[i - 1] = history[i];
-                history.popBack();
-            }
-
             history.pushBack(entry);
             if (entry.sequence > maxSequence) maxSequence = entry.sequence;
         }
@@ -350,8 +342,7 @@ public:
         return true;
     }
 
-    template <std::size_t Capacity>
-    static bool save(const StaticArray<UserActivityEntry, Capacity>& history,
+    static bool save(const DynamicArray<UserActivityEntry>& history,
                      long long nextSequence,
                      const std::string& path = defaultPath()) {
         try {
