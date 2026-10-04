@@ -9,6 +9,7 @@ main.cpp
   |     +-- track status
   |     +-- YES/NO resolution confirmation
   |     +-- messages/history/profile
+  |     +-- persistent account storage / delete account
   |     +-- emergency contacts
   |
   +-- Author Portal
@@ -28,6 +29,11 @@ main.cpp
         +-- user messaging
         +-- archive/history
 
+UserStorage
+  +-- data/users.txt
+  +-- load on startup
+  +-- save on register/reset/delete
+
 CrisisMeshSystem
   |
   +-- Manual DSA layer
@@ -41,7 +47,7 @@ CrisisMeshSystem
         20 nodes / 31 roads
 ```
 
-The program is deliberately in-memory and deterministic except for generated OTP values. Restarting the program resets users, incidents, road state, messages and operational state.
+Registered User accounts are persisted in `data/users.txt`. Operational state remains in-memory: restarting resets incidents, road state, messages, deployments, shelters and resource changes.
 
 ## Resource lifecycle
 
