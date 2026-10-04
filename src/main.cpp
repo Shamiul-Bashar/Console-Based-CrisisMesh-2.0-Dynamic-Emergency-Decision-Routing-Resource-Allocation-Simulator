@@ -247,8 +247,9 @@ void userPortal(CrisisMeshSystem& system, int userId) {
                   << "5. Closed History\n"
                   << "6. My Profile\n"
                   << "7. City Graph & Locations\n"
+                  << "8. Emergency Contacts\n"
                   << "0. Logout\n";
-        const int choice = readInt("Select: ", 0, 7);
+        const int choice = readInt("Select: ", 0, 8);
         if (choice == 0) return;
 
         if (choice == 1) {
@@ -293,6 +294,9 @@ void userPortal(CrisisMeshSystem& system, int userId) {
             showCityGraph(system);
             system.listLocations();
             waitForBack();
+        } else if (choice == 8) {
+            system.showEmergencyContacts();
+            waitForBack();
         }
     }
 }
@@ -335,27 +339,22 @@ void incidentCenter(CrisisMeshSystem& system) {
         std::cout << "\n================ INCIDENT CENTER ================\n";
         system.showAllIncidents();
         std::cout << "\nPending in FIFO Queue: " << system.pendingIntakeCount() << "\n"
+                  << "Ready for Incident Analysis: " << system.analysisReadyCount() << "\n"
                   << "1. Process Next Pending Incident (FIFO)\n"
                   << "2. Search Incident\n"
-                  << "3. Mark Field Response Completed\n"
                   << "0. Back\n";
-        const int choice = readInt("Select: ", 0, 3);
+
+        const int choice = readInt("Select: ", 0, 2);
         if (choice == 0) return;
 
-        std::string message;
         if (choice == 1) {
+            std::string message;
             system.processNextIntake(message);
             std::cout << "\n" << message << '\n';
-        } else if (choice == 2) {
-            const std::string id = readIncidentId("Incident ID (example INC-201 or 201): ");
-            if (id != "0") system.showIncidentDetails(id);
             waitForBack();
         } else {
             const std::string id = readIncidentId("Incident ID (example INC-201 or 201): ");
-            if (id != "0") {
-                system.markResponseCompleted(id, message);
-                std::cout << "\n" << message << '\n';
-            }
+            if (id != "0") system.showIncidentDetails(id);
             waitForBack();
         }
     }
@@ -363,21 +362,24 @@ void incidentCenter(CrisisMeshSystem& system) {
 
 void dispatchCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n================ DISPATCH CENTER ================\n"
-                  << "1. Dispatch Highest Priority Incident\n"
-                  << "2. View Responders / Resources\n"
+        std::cout << "\n================ DISPATCH CENTER ================\n";
+        system.showActiveDispatches();
+        std::cout << "\n1. Refresh Active Dispatches\n"
+                  << "2. Mark Response Completed\n"
                   << "0. Back\n";
+
         const int choice = readInt("Select: ", 0, 2);
         if (choice == 0) return;
-        if (choice == 1) {
-            std::string message;
-            system.dispatchHighest(message);
-            std::cout << "\n" << message << '\n';
-            waitForBack();
-        } else {
-            system.showRespondersAndResources();
-            waitForBack();
-        }
+
+        if (choice == 1) continue;
+
+        const std::string id = readIncidentId("Incident ID (example INC-201 or 201): ");
+        if (id == "0") continue;
+
+        std::string message;
+        system.markResponseCompleted(id, message);
+        std::cout << "\n" << message << '\n';
+        waitForBack();
     }
 }
 
@@ -617,26 +619,96 @@ void messageCenter(CrisisMeshSystem& system) {
     }
 }
 
-void traversalCenter(CrisisMeshSystem& system) {
-    while (true) {
-        std::cout << "\n================ BFS / DFS ANALYSIS ================\n"
-                  << "1. Run BFS\n"
-                  << "2. Run DFS\n"
-                  << "3. View City Graph\n"
-                  << "0. Back\n";
-        const int choice = readInt("Select: ", 0, 3);
-        if (choice == 0) return;
-        if (choice == 3) {
-            showCityGraph(system);
-            system.listLocations();
-            waitForBack();
-            continue;
-        }
-        system.listLocations();
-        const std::string start = readLocationId("Start location (LOC-001 or 001): ");
-        if (choice == 1) system.runBfs(start);
-        else system.runDfs(start);
+void analyzeIncident(CrisisMeshSystem& system, const std::string& incidentId) {
+    if (!system.isReadyForAnalysis(incidentId)) {
+        std::cout << "\nThis incident is not ready for analysis. Process it in Incident Center first.\n";
         waitForBack();
+        return;
+    }
+
+    while (system.isReadyForAnalysis(incidentId)) {
+        system.showIncidentResponseProfile(incidentId);
+
+        std::cout << "\n1. Run BFS Reachability Analysis\n"
+                  << "2. Run DFS Reachability Analysis\n"
+                  << "3. Run Dijkstra Response Comparison\n"
+                  << "4. Assign Response Resource\n"
+                  << "0. Back\n";
+
+        const int choice = readInt("Select: ", 0, 4);
+        if (choice == 0) return;
+
+        if (choice == 1) {
+            system.runIncidentBfs(incidentId);
+            waitForBack();
+        } else if (choice == 2) {
+            system.runIncidentDfs(incidentId);
+            waitForBack();
+        } else if (choice == 3) {
+            system.runIncidentDijkstraAnalysis(incidentId);
+            waitForBack();
+        } else {
+            std::cout << "\n================ MANUAL RESPONSE ASSIGNMENT ================\n";
+            system.showIncidentResponseProfile(incidentId);
+            const std::string responderId = upperCopy(readLine("\nResponder ID to assign: "));
+            const int available = system.responderAvailableStrength(responderId);
+
+            if (available < 0) {
+                std::cout << "Responder not found.\n";
+                waitForBack();
+                continue;
+            }
+            if (available == 0) {
+                std::cout << "Selected responder has no available strength.\n";
+                waitForBack();
+                continue;
+            }
+
+            const std::string measure = system.responderMeasure(responderId);
+            std::cout << "Available " << measure << ": " << available << '\n';
+            const int amount = readInt("Assignment quantity: ", 1, available);
+
+            std::string message;
+            const bool assigned = system.assignResponse(incidentId, responderId, amount, message);
+            std::cout << "\n" << message << '\n';
+            waitForBack();
+
+            if (assigned) return;
+        }
+    }
+}
+
+void incidentAnalysisCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n================ INCIDENT ANALYSIS ================\n";
+        system.showAnalysisReadyIncidents();
+        std::cout << "\nReady Incidents: " << system.analysisReadyCount() << "\n"
+                  << "1. Analyze Highest-Priority Incident (Max Heap)\n"
+                  << "2. Analyze Processed Incident by ID\n"
+                  << "0. Back\n";
+
+        const int choice = readInt("Select: ", 0, 2);
+        if (choice == 0) return;
+
+        std::string id;
+        if (choice == 1) {
+            id = system.highestReadyIncidentId();
+            if (id.empty()) {
+                std::cout << "\nNo processed incident is ready for analysis.\n";
+                waitForBack();
+                continue;
+            }
+        } else {
+            id = readIncidentId("Incident ID (INC-201 or 201): ");
+            if (id == "0") continue;
+            if (!system.isReadyForAnalysis(id)) {
+                std::cout << "\nIncident is not in PRIORITIZED state. Process it in Incident Center first.\n";
+                waitForBack();
+                continue;
+            }
+        }
+
+        analyzeIncident(system, id);
     }
 }
 
@@ -680,7 +752,7 @@ void authorPortal(CrisisMeshSystem& system) {
                   << "5. Responders & Resources\n"
                   << "6. User Directory\n"
                   << "7. Message Center\n"
-                  << "8. BFS / DFS Analysis\n"
+                  << "8. Incident Analysis\n"
                   << "9. Archive & History\n"
                   << "10. DSA Summary\n"
                   << "0. Logout\n";
@@ -694,7 +766,7 @@ void authorPortal(CrisisMeshSystem& system) {
         else if (choice == 5) resourceCenter(system);
         else if (choice == 6) userDirectoryCenter(system);
         else if (choice == 7) messageCenter(system);
-        else if (choice == 8) traversalCenter(system);
+        else if (choice == 8) incidentAnalysisCenter(system);
         else if (choice == 9) archiveCenter(system);
         else dsaSummaryCenter();
     }
