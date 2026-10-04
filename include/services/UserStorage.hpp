@@ -17,6 +17,7 @@ public:
         return "data/users.txt";
     }
 
+    // DSA: load persisted users into the manual StaticArray.
     template <std::size_t Capacity>
     static bool load(StaticArray<User, Capacity>& users,
                      int& nextUserId,
@@ -80,6 +81,7 @@ public:
         return true;
     }
 
+    // DSA: traverse the manual StaticArray when saving user records.
     template <std::size_t Capacity>
     static bool save(const StaticArray<User, Capacity>& users,
                      int nextUserId,

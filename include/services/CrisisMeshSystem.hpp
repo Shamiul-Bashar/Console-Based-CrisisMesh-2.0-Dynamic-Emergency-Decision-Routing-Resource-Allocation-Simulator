@@ -33,20 +33,29 @@ class CrisisMeshSystem {
     static constexpr std::size_t MAX_SHELTERS = 8;
     static constexpr std::size_t MAX_RESOURCES = 16;
 
+    // DSA: Graph represents the shared city road network.
     Graph graph_;
+    // DSA: Static Arrays store users, incidents, responders, shelters and supplies.
     StaticArray<User, MAX_USERS> users_;
     StaticArray<Incident, MAX_INCIDENTS> incidents_;
     StaticArray<Responder, MAX_RESPONDERS> responders_;
     StaticArray<Shelter, MAX_SHELTERS> shelters_;
     StaticArray<SupplyResource, MAX_RESOURCES> resources_;
+    // DSA: Dynamic Array stores growing user activity history.
     DynamicArray<UserActivityEntry> userActivity_; // Manual heap-backed array avoids large stack objects.
 
+    // DSA: FIFO Queue stores incident indices waiting for intake processing.
     Queue<int> intakeQueue_; // Manual FIFO queue.
+    // DSA: Max Heap schedules processed incidents by emergency priority.
     MaxHeap<IncidentHeapEntry, IncidentHigherPriority> priorityHeap_; // Manual max heap.
+    // DSA: Stack stores blocked-road indices for LIFO undo.
     Stack<int> roadUndoStack_; // Manual LIFO stack.
+    // DSA: Linked Lists store closed-incident history and messages.
     LinkedList<HistoryEntry> history_; // Manual linked list.
     LinkedList<Message> messages_;
+    // DSA: AVL Tree keeps the closed-incident archive balanced.
     AVLTree archive_; // Manual balanced tree.
+    // DSA: Hash Tables provide fast incident-ID and username lookup.
     HashTable<int> incidentIndex_; // Manual separate-chaining hash table.
     HashTable<int> usernameIndex_;
 
@@ -81,6 +90,7 @@ class CrisisMeshSystem {
         return "AVAILABLE";
     }
 
+    // DSA: read the highest-priority valid incident from the Max Heap.
     Incident* highestReadyIncident() {
         while (!priorityHeap_.empty()) {
             const IncidentHeapEntry& top = priorityHeap_.top();
@@ -100,6 +110,7 @@ class CrisisMeshSystem {
         return -1;
     }
 
+    // DSA: rebuild the username Hash Table from the user Array.
     void rebuildUsernameIndex() {
         usernameIndex_.clear();
         for (std::size_t i = 0; i < users_.size(); ++i)
@@ -133,6 +144,7 @@ class CrisisMeshSystem {
         return buffer;
     }
 
+    // DSA: append audit records to the Dynamic Array.
     void appendUserActivity(int userId,
                             const std::string& actor,
                             const std::string& action,
@@ -147,6 +159,7 @@ class CrisisMeshSystem {
         saveUserHistory();
     }
 
+    // DSA: rebuild Hash Table, FIFO Queue, Max Heap, Linked List and AVL Tree after restart.
     void rebuildIncidentRuntimeState() {
         incidentIndex_.clear();
         bool routeSnapshotNormalized = false;
@@ -263,12 +276,14 @@ class CrisisMeshSystem {
         return false;
     }
 
+    // DSA: traverse the incident DynamicArray of route edges.
     bool routeUsesEdge(const Incident& incident, int edgeIndex) const {
         for (std::size_t i = 0; i < incident.routeEdges.size(); ++i)
             if (incident.routeEdges[i] == edgeIndex) return true;
         return false;
     }
 
+    // DSA Algorithm: reroute an active incident using Dijkstra.
     bool reroute(Incident& incident) {
         Responder* responder = responderById(incident.assignedResponderId);
         if (!responder) return false;
@@ -359,6 +374,7 @@ public:
     // =========================================================================
     // USER ACCOUNT LIFECYCLE
     // =========================================================================
+    // DSA: register into the user Array and username Hash Table.
     int registerUser(const User& input) {
         if (input.name.empty() || input.username.empty() || input.email.empty()) return -1;
         if (users_.full() || usernameIndex_.get(input.username)) return -1;
@@ -426,6 +442,7 @@ public:
             return false;
         }
 
+        // DSA: Array deletion shifts later user records left before popBack().
         const StaticArray<User, MAX_USERS> backupUsers = users_;
 
         for (std::size_t i = static_cast<std::size_t>(index); i + 1 < users_.size(); ++i)
@@ -454,6 +471,7 @@ public:
     // =========================================================================
     // LOCATION LOOKUP & INCIDENT INTAKE
     // =========================================================================
+    // DSA Algorithm: Binary Search over sorted location IDs.
     int findLocationBinary(const std::string& id) const {
         int left = 0, right = graph_.nodeCount() - 1;
         while (left <= right) {
@@ -472,6 +490,7 @@ public:
                       << std::setw(27) << graph_.node(i).name << " | " << graph_.node(i).category << '\n';
     }
 
+    // DSA: Incident Array stores data, Hash Table indexes it, Queue keeps FIFO intake order.
     std::string reportIncident(int userId, IncidentType type, const std::string& locationId,
                                int severity, int urgency, int victims, const std::string& description) {
         if (!userExists(userId)) return "";
@@ -512,6 +531,7 @@ public:
         return index ? &incidents_[*index] : nullptr;
     }
 
+    // DSA: dequeue FIFO intake, then push the prioritized incident into the Max Heap.
     bool processNext(std::string& out) {
         if (intakeQueue_.empty()) {
             out = "No pending incident is waiting in the FIFO queue.";
@@ -551,6 +571,7 @@ public:
         return count;
     }
 
+    // DSA Algorithm: Merge Sort ranks analysis-ready incidents by priority and sequence.
     void showAnalysisReadyIncidents() const {
         struct ReadyRow {
             int incidentIndex{-1};
@@ -642,6 +663,7 @@ public:
         if (!shown) std::cout << "No compatible response resource configured.\n";
     }
 
+    // DSA Algorithm: BFS reachability from the incident location.
     void runIncidentBfs(const std::string& id) const {
         const Incident* incident = findIncident(id);
         if (!incident) { std::cout << "Incident not found.\n"; return; }
@@ -649,6 +671,7 @@ public:
         runBfs(incident->locationId);
     }
 
+    // DSA Algorithm: DFS reachability from the incident location.
     void runIncidentDfs(const std::string& id) const {
         const Incident* incident = findIncident(id);
         if (!incident) { std::cout << "Incident not found.\n"; return; }
@@ -656,6 +679,7 @@ public:
         runDfs(incident->locationId);
     }
 
+    // DSA: Dijkstra compares responder routes; Merge Sort ranks the candidates.
     void runIncidentDijkstraAnalysis(const std::string& id) const {
         const Incident* incident = findIncident(id);
         if (!incident) { std::cout << "Incident not found.\n"; return; }
@@ -761,6 +785,7 @@ public:
     // =========================================================================
     // RESPONSE ASSIGNMENT & DISPATCH LIFECYCLE
     // =========================================================================
+    // DSA Algorithm: Dijkstra validates and stores the selected responder route.
     bool assignResponse(const std::string& incidentId, const std::string& responderId,
                         int strength, std::string& out) {
         Incident* incident = findIncident(incidentId);
@@ -926,6 +951,7 @@ public:
             return false;
         }
 
+        // DSA: resolved incidents append to Linked List history and insert into the AVL Tree.
         if (solved) {
             incident->userConfirmedResolved = true;
             incident->status = IncidentStatus::Resolved;
@@ -956,6 +982,7 @@ public:
         incident->routeTravelTime = 0;
         incident->status = IncidentStatus::Queued;
 
+        // DSA: unresolved incidents are re-enqueued into the FIFO Queue.
         const int* index = incidentIndex_.get(id);
         if (index) intakeQueue_.enqueue(*index);
 
@@ -971,6 +998,7 @@ public:
     // =========================================================================
     // ROAD CONTROL & AUTOMATIC REROUTING
     // =========================================================================
+    // DSA: push blocked roads onto the Stack; affected routes are recalculated with Dijkstra.
     bool blockRoad(const std::string& roadId, std::string& out) {
         const int edgeIndex = graph_.findEdgeIndex(roadId);
         if (edgeIndex < 0) {
@@ -999,6 +1027,7 @@ public:
         return true;
     }
 
+    // DSA: pop the most recently blocked road from the LIFO Stack.
     bool undoRoadBlock(std::string& out) {
         if (roadUndoStack_.empty()) {
             out = "No blocked road is available to undo.";
@@ -1019,6 +1048,7 @@ public:
     // =========================================================================
     // SHELTER & SUPPLY ALLOCATION
     // =========================================================================
+    // DSA: scan the shelter Array and use Dijkstra to choose the nearest reachable option.
     bool allocateShelter(const std::string& id, std::string& out) {
         Incident* incident = findIncident(id);
         if (!incident) { out = "Incident not found."; return false; }
@@ -1054,6 +1084,7 @@ public:
         return true;
     }
 
+    // DSA: traverse and update supply records stored in the resource Array.
     bool allocateSupply(const std::string& id, const std::string& type, int quantity, std::string& out) {
         Incident* incident = findIncident(id);
         if (!incident) { out = "Incident not found."; return false; }
@@ -1117,6 +1148,7 @@ public:
     // =========================================================================
     // USER COMMUNICATION
     // =========================================================================
+    // DSA: append direct or broadcast messages to the Linked List.
     bool sendMessage(int recipientUserId, const std::string& text) {
         if (text.empty()) return false;
         if (recipientUserId != -1 && !userExists(recipientUserId)) return false;
@@ -1581,6 +1613,7 @@ public:
         if (!shown) std::cout << "No roads are currently blocked.\n";
     }
 
+    // DSA Algorithm: run BFS and store traversal order in DynamicArray.
     void runBfs(const std::string& startId) const {
         const int start = findLocationBinary(startId);
         if (start < 0) { std::cout << "Invalid location.\n"; return; }
@@ -1595,6 +1628,7 @@ public:
         std::cout << std::string(52, '-') << '\n' << "Total Visited Nodes: " << order.size() << '\n';
     }
 
+    // DSA Algorithm: run DFS and store traversal order in DynamicArray.
     void runDfs(const std::string& startId) const {
         const int start = findLocationBinary(startId);
         if (start < 0) { std::cout << "Invalid location.\n"; return; }
@@ -1609,6 +1643,7 @@ public:
         std::cout << std::string(52, '-') << '\n' << "Total Visited Nodes: " << order.size() << '\n';
     }
 
+    // DSA Algorithm: compute the shortest route with Dijkstra.
     void runDijkstra(const std::string& fromId, const std::string& toId) const {
         const int from = findLocationBinary(fromId);
         const int to = findLocationBinary(toId);
@@ -1629,6 +1664,7 @@ public:
         std::cout.unsetf(std::ios::floatfield);
     }
 
+    // DSA: display AVL in-order archive and sequential Linked List history.
     void showArchive() const {
         std::cout << "\n================ ARCHIVE & HISTORY ================\n"
                   << "AVL CLOSED-INCIDENT ARCHIVE\n";

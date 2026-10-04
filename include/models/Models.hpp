@@ -126,6 +126,7 @@ struct Incident {
     std::string shelterId;
     std::string allocatedResourceType;
     int allocatedResourceQuantity{0};
+    // DSA: Dynamic Arrays store the selected route's node and edge sequence.
     DynamicArray<int> routeNodes;
     DynamicArray<int> routeEdges;
     double routeCost{0.0};
@@ -189,6 +190,7 @@ struct UserActivityEntry {
     std::string details;
 };
 
+// DSA: Heap entry and comparator support Max-Heap incident priority scheduling.
 struct IncidentHeapEntry {
     int incidentIndex{-1};
     int priority{0};
@@ -202,6 +204,7 @@ struct IncidentHigherPriority {
     }
 };
 
+// DSA: Candidate records are sorted by Merge Sort during responder ranking.
 struct Candidate {
     int responderIndex{-1};
     std::string responderId;
@@ -219,6 +222,7 @@ inline bool candidateComesBefore(const Candidate& a, const Candidate& b) {
     return a.responderId < b.responderId;
 }
 
+// DSA support: calculated score becomes the key used by the incident Max Heap.
 inline int calculatePriority(int severity, int urgency, int victims, IncidentType type) {
     int typeWeight = 4;
     if (type == IncidentType::Fire || type == IncidentType::Medical) typeWeight = 8;

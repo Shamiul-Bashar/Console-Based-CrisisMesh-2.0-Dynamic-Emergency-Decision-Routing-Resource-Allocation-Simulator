@@ -469,6 +469,7 @@ void dispatchCenter(CrisisMeshSystem& system) {
 // =============================================================================
 // AUTHOR OPERATIONS: CITY GRAPH, ROUTING & RESOURCE MANAGEMENT
 // =============================================================================
+// DSA UI: Graph operations, Stack-based road undo, and Dijkstra rerouting.
 void cityGraphCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ CITY GRAPH & ROADS ================\n"
@@ -512,6 +513,7 @@ void cityGraphCenter(CrisisMeshSystem& system) {
     }
 }
 
+// DSA UI: Dijkstra shortest path and Binary Search location lookup.
 void routeSearchCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ ROUTE & LOCATION SEARCH ================\n"
@@ -736,6 +738,7 @@ void messageCenter(CrisisMeshSystem& system) {
 // =============================================================================
 // AUTHOR OPERATIONS: INCIDENT ANALYSIS & DSA-DRIVEN ASSIGNMENT
 // =============================================================================
+// DSA UI: BFS, DFS, Dijkstra and manual resource assignment.
 void analyzeIncident(CrisisMeshSystem& system, const std::string& incidentId) {
     if (!system.isReadyForAnalysis(incidentId)) {
         std::cout << "\nThis incident is not ready for analysis. Process it in Incident Center first.\n";
@@ -797,6 +800,7 @@ void analyzeIncident(CrisisMeshSystem& system, const std::string& incidentId) {
     }
 }
 
+// DSA UI: Max-Heap priority selection for processed incidents.
 void incidentAnalysisCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ INCIDENT ANALYSIS ================\n";
@@ -834,6 +838,7 @@ void incidentAnalysisCenter(CrisisMeshSystem& system) {
 // =============================================================================
 // ARCHIVE, HISTORY & DSA SUMMARY
 // =============================================================================
+// DSA UI: AVL Tree archive and Linked List history.
 void archiveCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ ARCHIVE & HISTORY ================\n";

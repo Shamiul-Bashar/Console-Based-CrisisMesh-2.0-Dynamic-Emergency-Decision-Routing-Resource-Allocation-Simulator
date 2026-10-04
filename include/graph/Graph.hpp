@@ -35,8 +35,10 @@ struct AdjEdge {
     int edgeIndex{-1};
 };
 
+// DSA: Undirected adjacency-list Graph for the city road network.
 class Graph {
 private:
+    // STL vector is used only for Graph storage, as allowed by the project requirement.
     std::vector<GraphNode> nodes_;
     std::vector<GraphEdge> edges_;
     std::vector<std::vector<AdjEdge>> adjacency_;
@@ -48,6 +50,7 @@ public:
         return static_cast<int>(nodes_.size()) - 1;
     }
 
+    // Graph operation: add one road in both adjacency lists.
     int addEdge(const std::string& id, int from, int to, double distance, int time,
                 int risk, int congestion, int capacity) {
         const int index = static_cast<int>(edges_.size());

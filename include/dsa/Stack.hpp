@@ -5,14 +5,17 @@
 
 namespace crisismesh {
 
+// DSA: Manual Stack (LIFO) built on the custom DynamicArray.
 template <typename T>
 class Stack {
 private:
     DynamicArray<T> data_;
 
 public:
+    // DSA operation: push onto the top of the Stack.
     void push(const T& value) { data_.pushBack(value); }
 
+    // DSA operation: pop the most recently pushed element.
     T pop() {
         if (data_.empty()) throw std::runtime_error("Stack underflow");
         T value = data_.back();

@@ -5,6 +5,7 @@
 
 namespace crisismesh {
 
+// DSA: Manual Min Heap backed by the custom DynamicArray.
 template <typename T, typename LowerPriority>
 class MinHeap {
 private:
@@ -18,6 +19,7 @@ private:
     }
 
 public:
+    // DSA operation: heap insertion with upward heapify.
     void push(const T& value) {
         data_.pushBack(value);
         std::size_t i = data_.size() - 1;
@@ -29,6 +31,7 @@ public:
         }
     }
 
+    // DSA operation: remove the minimum root with downward heapify.
     T pop() {
         if (data_.empty()) throw std::runtime_error("MinHeap is empty");
         T result = data_[0];

@@ -4,9 +4,11 @@
 
 namespace crisismesh {
 
+// DSA Algorithm: Manual Merge Sort using divide, recursive sort, and merge.
 class MergeSort {
 private:
     template <typename T, typename Before>
+    // DSA operation: merge two sorted halves.
     static void merge(T* data, T* temp, int left, int mid, int right, Before before) {
         int i = left, j = mid + 1, k = left;
         while (i <= mid && j <= right) {
@@ -19,6 +21,7 @@ private:
     }
 
     template <typename T, typename Before>
+    // DSA operation: recursively divide the array into smaller ranges.
     static void sortRange(T* data, T* temp, int left, int right, Before before) {
         if (left >= right) return;
         const int mid = left + (right - left) / 2;

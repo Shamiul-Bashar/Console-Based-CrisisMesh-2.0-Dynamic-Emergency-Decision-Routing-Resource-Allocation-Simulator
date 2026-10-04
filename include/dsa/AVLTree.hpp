@@ -6,6 +6,7 @@
 
 namespace crisismesh {
 
+// DSA: Manual AVL Tree used as a self-balancing binary search tree.
 class AVLTree {
 private:
     struct Node {
@@ -24,6 +25,7 @@ private:
     static int balance(Node* n) { return n ? height(n->left) - height(n->right) : 0; }
     static void update(Node* n) { n->height = 1 + std::max(height(n->left), height(n->right)); }
 
+    // DSA: AVL rotations restore balance after insertion.
     static Node* rotateRight(Node* y) {
         Node* x = y->left;
         Node* t2 = x->right;
@@ -42,6 +44,7 @@ private:
         return y;
     }
 
+    // DSA operation: BST insertion followed by AVL balance checks.
     Node* insert(Node* node, long long key, const std::string& id, bool& added) {
         if (!node) { added = true; return new Node(key, id); }
         if (key < node->key) node->left = insert(node->left, key, id, added);
@@ -62,6 +65,7 @@ private:
         destroy(node->left); destroy(node->right); delete node;
     }
 
+    // DSA operation: in-order traversal of the AVL Tree.
     template <typename Func>
     static void inorder(Node* node, Func& fn) {
         if (!node) return;
