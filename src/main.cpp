@@ -366,18 +366,19 @@ void dispatchCenter(CrisisMeshSystem& system) {
         system.showActiveDispatches();
         std::cout << "\n1. Refresh Active Dispatches\n"
                   << "2. Mark Response Completed\n"
+                  << "3. Recall Response / Return to Analysis\n"
                   << "0. Back\n";
 
-        const int choice = readInt("Select: ", 0, 2);
+        const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) return;
-
         if (choice == 1) continue;
 
         const std::string id = readIncidentId("Incident ID (example INC-201 or 201): ");
         if (id == "0") continue;
 
         std::string message;
-        system.markResponseCompleted(id, message);
+        if (choice == 2) system.markResponseCompleted(id, message);
+        else system.recallResponse(id, message);
         std::cout << "\n" << message << '\n';
         waitForBack();
     }
@@ -429,7 +430,7 @@ void cityGraphCenter(CrisisMeshSystem& system) {
 void routeSearchCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ ROUTE & LOCATION SEARCH ================\n"
-                  << "1. Dijkstra Shortest Route\n"
+                  << "1. Dijkstra Shortest-Distance Route\n"
                   << "2. Binary Search Location\n"
                   << "3. View Locations\n"
                   << "0. Back\n";
@@ -610,11 +611,20 @@ void messageCenter(CrisisMeshSystem& system) {
         if (choice == 1) {
             system.listUsers();
             const int userId = readInt("Recipient User ID: ", 1, 100);
-            system.sendMessage(userId, readLine("Message: "));
-            std::cout << "Message sent successfully.\n";
+            if (!system.userExists(userId)) {
+                std::cout << "User ID not found. Message was not sent.\n";
+                waitForBack();
+                continue;
+            }
+            const std::string message = readLine("Message: ");
+            std::cout << (system.sendMessage(userId, message)
+                          ? "Message sent successfully.\n"
+                          : "Message cannot be empty.\n");
         } else {
-            system.sendMessage(-1, readLine("Broadcast message: "));
-            std::cout << "Broadcast sent successfully.\n";
+            const std::string message = readLine("Broadcast message: ");
+            std::cout << (system.sendMessage(-1, message)
+                          ? "Broadcast sent successfully.\n"
+                          : "Broadcast cannot be empty.\n");
         }
     }
 }
