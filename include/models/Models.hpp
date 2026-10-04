@@ -73,12 +73,12 @@ inline std::string requiredResponderType(IncidentType type) {
 inline const char* responseCategoryName(IncidentType type) {
     switch (type) {
         case IncidentType::Police: return "LAW ENFORCEMENT RESPONSE";
-        case IncidentType::Fire: return "FIRE RESPONSE";
+        case IncidentType::Fire: return "FIRE & RESCUE RESPONSE";
         case IncidentType::Medical:
-        case IncidentType::Accident: return "MEDICAL RESPONSE";
+        case IncidentType::Accident: return "EMERGENCY MEDICAL RESPONSE";
         case IncidentType::Rescue:
         case IncidentType::Flood:
-        case IncidentType::Structural: return "RESCUE RESPONSE";
+        case IncidentType::Structural: return "SEARCH & RESCUE RESPONSE";
     }
     return "EMERGENCY RESPONSE";
 }
@@ -87,6 +87,13 @@ inline const char* responderStrengthLabel(const std::string& type) {
     if (type == "POLICE_UNIT") return "OFFICERS";
     if (type == "RESCUE_TEAM") return "TEAMS";
     return "UNITS";
+}
+
+inline const char* operationalPriorityName(int score) {
+    if (score >= 120) return "CRITICAL";
+    if (score >= 90) return "HIGH";
+    if (score >= 65) return "ELEVATED";
+    return "STANDARD";
 }
 
 struct User {
