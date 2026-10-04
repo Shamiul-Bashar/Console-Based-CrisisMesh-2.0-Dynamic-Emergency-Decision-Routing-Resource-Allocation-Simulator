@@ -691,8 +691,8 @@ void userDirectoryCenter(CrisisMeshSystem& system) {
         if (choice == 1) continue;
 
         const int userId = readInt("User ID: ", 1, 1000000);
-        if (!system.userExists(userId) && !system.hasUserHistory(userId)) {
-            std::cout << "\nNo registered account or retained history exists for that User ID.\n";
+        if (!system.hasRetainedUserData(userId)) {
+            std::cout << "\nNo registered account, incident record, or retained activity exists for that User ID.\n";
             waitForBack();
             continue;
         }
