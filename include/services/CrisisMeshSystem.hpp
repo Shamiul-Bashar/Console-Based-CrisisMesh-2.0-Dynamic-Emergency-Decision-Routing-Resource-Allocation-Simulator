@@ -149,6 +149,7 @@ class CrisisMeshSystem {
 
     void rebuildIncidentRuntimeState() {
         incidentIndex_.clear();
+        bool routeSnapshotNormalized = false;
 
         for (std::size_t i = 0; i < incidents_.size(); ++i) {
             Incident& incident = incidents_[i];
@@ -161,10 +162,34 @@ class CrisisMeshSystem {
 
             incidentIndex_.put(incident.id, static_cast<int>(i));
 
+            // Rebuild the DSA scheduling structures from persisted lifecycle state.
             if (incident.status == IncidentStatus::Queued) {
                 intakeQueue_.enqueue(static_cast<int>(i));
             } else if (incident.status == IncidentStatus::Prioritized) {
                 priorityHeap_.push({static_cast<int>(i), incident.priorityScore, incident.sequence});
+            }
+
+            // Restore shelter occupancy contributed by persisted incident allocation.
+            if (!incident.shelterId.empty()) {
+                const int people = incident.victimCount > 0 ? incident.victimCount : 1;
+                for (std::size_t s = 0; s < shelters_.size(); ++s) {
+                    if (shelters_[s].id != incident.shelterId) continue;
+                    const int room = shelters_[s].capacity - shelters_[s].occupancy;
+                    if (room > 0)
+                        shelters_[s].occupancy += people < room ? people : room;
+                    break;
+                }
+            }
+
+            // Restore supply consumption represented by the incident snapshot.
+            if (!incident.allocatedResourceType.empty() &&
+                incident.allocatedResourceQuantity > 0) {
+                for (std::size_t r = 0; r < resources_.size(); ++r) {
+                    if (resources_[r].type != incident.allocatedResourceType) continue;
+                    resources_[r].quantity -= incident.allocatedResourceQuantity;
+                    if (resources_[r].quantity < 0) resources_[r].quantity = 0;
+                    break;
+                }
             }
 
             // Restore resource consumption for dispatches that were still
@@ -183,12 +208,20 @@ class CrisisMeshSystem {
                     if (strength > responder->availableStrength)
                         strength = responder->availableStrength;
                     responder->availableStrength -= strength;
+
                     if (responder->type != "POLICE_UNIT")
                         responder->assignedIncidentId = incident.id;
+
                     if (responder->availability != ResponderAvailability::Offline)
                         responder->availability = responder->availableStrength > 0
                             ? ResponderAvailability::Available
                             : ResponderAvailability::Busy;
+
+                    // Road blocks themselves are session controls. Therefore an
+                    // active persisted dispatch is recalculated against the
+                    // freshly seeded road graph instead of keeping a stale path.
+                    reroute(incident);
+                    routeSnapshotNormalized = true;
                 }
             }
 
@@ -204,6 +237,7 @@ class CrisisMeshSystem {
                     responder->currentLocation = incident.locationIndex;
             }
 
+            // Rebuild the two assessed closed-history structures.
             if (incident.status == IncidentStatus::Closed ||
                 incident.status == IncidentStatus::Resolved) {
                 history_.pushBack({incident.sequence, incident.id,
@@ -211,6 +245,9 @@ class CrisisMeshSystem {
                 archive_.insert(incident.sequence, incident.id);
             }
         }
+
+        if (routeSnapshotNormalized && !incidents_.empty())
+            saveIncidents();
     }
 
     bool hasOpenIncidentsForUser(int userId) const {
