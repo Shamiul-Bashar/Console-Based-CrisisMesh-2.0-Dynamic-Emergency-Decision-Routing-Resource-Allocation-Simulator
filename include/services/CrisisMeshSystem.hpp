@@ -32,7 +32,6 @@ class CrisisMeshSystem {
     static constexpr std::size_t MAX_RESPONDERS = 32;
     static constexpr std::size_t MAX_SHELTERS = 8;
     static constexpr std::size_t MAX_RESOURCES = 16;
-    static constexpr std::size_t MAX_USER_HISTORY = 2000;
 
     Graph graph_;
     StaticArray<User, MAX_USERS> users_;
@@ -40,7 +39,7 @@ class CrisisMeshSystem {
     StaticArray<Responder, MAX_RESPONDERS> responders_;
     StaticArray<Shelter, MAX_SHELTERS> shelters_;
     StaticArray<SupplyResource, MAX_RESOURCES> resources_;
-    StaticArray<UserActivityEntry, MAX_USER_HISTORY> userActivity_;
+    DynamicArray<UserActivityEntry> userActivity_; // Manual heap-backed array avoids large stack objects.
 
     Queue<int> intakeQueue_; // Manual FIFO queue.
     MaxHeap<IncidentHeapEntry, IncidentHigherPriority> priorityHeap_; // Manual max heap.
@@ -140,13 +139,6 @@ class CrisisMeshSystem {
                             const std::string& incidentId,
                             const std::string& details) {
         if (userId <= 0) return;
-
-        // Keep the newest entries if the fixed-capacity audit buffer fills up.
-        if (userActivity_.full()) {
-            for (std::size_t i = 1; i < userActivity_.size(); ++i)
-                userActivity_[i - 1] = userActivity_[i];
-            userActivity_.popBack();
-        }
 
         userActivity_.pushBack({
             nextActivitySequence_++, userId, currentTimestamp(), actor,
