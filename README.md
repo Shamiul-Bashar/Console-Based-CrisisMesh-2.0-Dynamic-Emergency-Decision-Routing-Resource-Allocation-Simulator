@@ -45,8 +45,8 @@ User emergency report
      -> type-specific response category
      -> compatible responder availability
      -> BFS / DFS reachability
-     -> Dijkstra comparison for every compatible responder
-     -> shortest response path recommendation
+     -> true shortest-distance Dijkstra comparison for every compatible responder
+     -> shortest-distance path recommendation
   -> Author manually assigns responder / response strength
   -> EN_ROUTE
   -> optional road block + Stack undo + reroute
@@ -73,7 +73,7 @@ User emergency report
 | Min Heap | `include/dsa/MinHeap.hpp` | Dijkstra frontier |
 | Hash Table | `include/dsa/HashTable.hpp` | Fast incident and username lookup |
 | Graph | `include/graph/Graph.hpp` | 20-node, 31-road city network |
-| Dijkstra | `include/algorithms/Dijkstra.hpp` | Compare compatible responders, recommend shortest response, reroute, shelter selection |
+| Dijkstra | `include/algorithms/Dijkstra.hpp` | True shortest-distance response analysis plus weighted operational routing support |
 
 > STL containers are intentionally avoided for the assessed Array/Linked List/Stack/Queue/Tree/Heap/Hash structures. `std::vector` is used only inside the graph adjacency representation, matching the project instruction that STL is acceptable for graph work.
 
@@ -170,10 +170,10 @@ ctest --test-dir build --output-on-failure
 5. Open Incident Analysis and select the highest-priority processed incident from the Max Heap.
 6. Show compatible response locations, total/available/on-operation strength.
 7. Run BFS and DFS from the incident location.
-8. Run Dijkstra and explain the responder distance table and recommended shortest path.
+8. Run Dijkstra and explain the responder distance table and highlighted shortest-distance path.
 9. Manually assign a responder; for Police, assign an officer count.
 10. Show the reduced availability in Responders & Resources.
-11. Mark the response completed from Dispatch Center and show the resource strength restored.
+11. Demonstrate `Recall Response / Return to Analysis` once, then reassign; finally mark the response completed and show the resource strength restored.
 12. Login as the reporting User and answer `YES` to close the incident.
 13. Show the Linked List history + AVL Tree archive.
 14. Demonstrate road blocking/Stack undo, messaging, shelters and supplies.
@@ -191,3 +191,14 @@ Incident Analysis uses professional response categories:
 - Rescue / Flood / Structural -> **Search & Rescue Response** (rescue teams)
 
 The responder table tracks **Total**, **Available**, and **On Operation** strength. For example, assigning 10 officers from a station with 30 available immediately changes its state to 20 available / 10 on operation. Marking the response completed returns those 10 officers to the available pool.
+
+
+## Final Reliability Hardening
+
+The final audit adds several guardrails without changing the simple 10-section dashboard:
+
+- **True shortest-distance analysis:** Incident Analysis minimizes kilometers directly. Operational weighted cost is still calculated and displayed as an additional route-quality metric.
+- **Recall / re-analysis:** an active or unreachable dispatch can be recalled from Dispatch Center. Its deployed officers/unit/team are restored and the incident returns to `PRIORITIZED` for a new analysis and assignment.
+- **Allocation guards:** closed/resolved/cancelled incidents cannot receive new shelter or supply allocations, and the same incident cannot reserve shelter capacity twice.
+- **Message validation:** direct messages require a real registered user ID and messages cannot be empty.
+- **Cross-platform CI:** GitHub Actions compiles and runs CTest on both Ubuntu and Windows for every pull request and push to `main`.

@@ -187,6 +187,10 @@ void registerUser(CrisisMeshSystem& system) {
     user.username = readLine("Username: ");
     user.password = readPassword("Password: ");
 
+    if (user.name.empty() || user.username.empty()) {
+        std::cout << "Name and username cannot be empty.\n";
+        return;
+    }
     if (!AuthService::validEmail(user.email)) {
         std::cout << "Invalid email format.\n";
         return;
@@ -208,6 +212,10 @@ void registerUser(CrisisMeshSystem& system) {
 void forgotPassword(CrisisMeshSystem& system) {
     std::cout << "\n========== RESET PASSWORD ==========\n";
     const std::string username = readLine("Username: ");
+    if (!system.usernameExists(username)) {
+        std::cout << "Username not found.\n";
+        return;
+    }
     if (!simulatedOtpVerification("PASSWORD RESET")) {
         std::cout << "Verification failed.\n";
         return;
@@ -262,7 +270,8 @@ void userPortal(CrisisMeshSystem& system, int userId) {
         } else if (choice == 3) {
             std::cout << "\n========== RESOLUTION CONFIRMATION ==========\n";
             system.showUserIncidents(userId);
-            const std::string id = readIncidentId("Incident ID (example INC-201): ");
+            const std::string id = readIncidentId("Incident ID (example INC-201, 0 to cancel): ");
+            if (id == "0") continue;
             std::cout << "1. YES - Problem solved\n2. NO - Still need help\n";
             const bool solved = readInt("Select: ", 1, 2) == 1;
             std::string reason;
@@ -366,18 +375,19 @@ void dispatchCenter(CrisisMeshSystem& system) {
         system.showActiveDispatches();
         std::cout << "\n1. Refresh Active Dispatches\n"
                   << "2. Mark Response Completed\n"
+                  << "3. Recall Response / Return to Analysis\n"
                   << "0. Back\n";
 
-        const int choice = readInt("Select: ", 0, 2);
+        const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) return;
-
         if (choice == 1) continue;
 
         const std::string id = readIncidentId("Incident ID (example INC-201 or 201): ");
         if (id == "0") continue;
 
         std::string message;
-        system.markResponseCompleted(id, message);
+        if (choice == 2) system.markResponseCompleted(id, message);
+        else system.recallResponse(id, message);
         std::cout << "\n" << message << '\n';
         waitForBack();
     }
@@ -429,7 +439,7 @@ void cityGraphCenter(CrisisMeshSystem& system) {
 void routeSearchCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ ROUTE & LOCATION SEARCH ================\n"
-                  << "1. Dijkstra Shortest Route\n"
+                  << "1. Dijkstra Shortest-Distance Route\n"
                   << "2. Binary Search Location\n"
                   << "3. View Locations\n"
                   << "0. Back\n";
@@ -610,11 +620,20 @@ void messageCenter(CrisisMeshSystem& system) {
         if (choice == 1) {
             system.listUsers();
             const int userId = readInt("Recipient User ID: ", 1, 100);
-            system.sendMessage(userId, readLine("Message: "));
-            std::cout << "Message sent successfully.\n";
+            if (!system.userExists(userId)) {
+                std::cout << "User ID not found. Message was not sent.\n";
+                waitForBack();
+                continue;
+            }
+            const std::string message = readLine("Message: ");
+            std::cout << (system.sendMessage(userId, message)
+                          ? "Message sent successfully.\n"
+                          : "Message cannot be empty.\n");
         } else {
-            system.sendMessage(-1, readLine("Broadcast message: "));
-            std::cout << "Broadcast sent successfully.\n";
+            const std::string message = readLine("Broadcast message: ");
+            std::cout << (system.sendMessage(-1, message)
+                          ? "Broadcast sent successfully.\n"
+                          : "Broadcast cannot be empty.\n");
         }
     }
 }
@@ -650,7 +669,8 @@ void analyzeIncident(CrisisMeshSystem& system, const std::string& incidentId) {
         } else {
             std::cout << "\n================ MANUAL RESPONSE ASSIGNMENT ================\n";
             system.showIncidentResponseProfile(incidentId);
-            const std::string responderId = upperCopy(readLine("\nResponder ID to assign: "));
+            const std::string responderId = upperCopy(readLine("\nResponder ID to assign (0 to cancel): "));
+            if (responderId == "0") continue;
             const int available = system.responderAvailableStrength(responderId);
 
             if (available < 0) {
@@ -666,7 +686,8 @@ void analyzeIncident(CrisisMeshSystem& system, const std::string& incidentId) {
 
             const std::string measure = system.responderMeasure(responderId);
             std::cout << "Available " << measure << ": " << available << '\n';
-            const int amount = readInt("Assignment quantity: ", 1, available);
+            const int amount = readInt("Assignment quantity (0 to cancel): ", 0, available);
+            if (amount == 0) continue;
 
             std::string message;
             const bool assigned = system.assignResponse(incidentId, responderId, amount, message);

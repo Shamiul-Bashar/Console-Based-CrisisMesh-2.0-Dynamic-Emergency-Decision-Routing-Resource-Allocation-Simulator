@@ -20,33 +20,34 @@ struct DijkstraLower {
 
 struct RouteResult {
     bool reachable{false};
-    double cost{0.0};
-    double distance{0.0};
-    int travelTime{0};
+    double cost{0.0};       // Operational weighted cost of the selected path.
+    double distance{0.0};   // Physical distance in km.
+    int travelTime{0};      // Total travel time in minutes.
     DynamicArray<int> nodes;
     DynamicArray<int> edges;
 };
 
 class Dijkstra {
-public:
-    static RouteResult shortestPath(const Graph& graph, int source, int target) {
+private:
+    static RouteResult compute(const Graph& graph, int source, int target, bool distanceOnly) {
         RouteResult result;
         const int n = graph.nodeCount();
         if (source < 0 || target < 0 || source >= n || target >= n) return result;
 
         const double INF = std::numeric_limits<double>::infinity();
-        double* dist = new double[n];
+        double* best = new double[n];
         int* parent = new int[n];
         int* parentEdge = new int[n];
         bool* done = new bool[n]{};
+
         for (int i = 0; i < n; ++i) {
-            dist[i] = INF;
+            best[i] = INF;
             parent[i] = -1;
             parentEdge[i] = -1;
         }
 
         MinHeap<DijkstraNode, DijkstraLower> heap;
-        dist[source] = 0.0;
+        best[source] = 0.0;
         heap.push({source, 0.0});
 
         while (!heap.empty()) {
@@ -59,9 +60,12 @@ public:
             for (const auto& adj : graph.neighbors(u)) {
                 const GraphEdge& edge = graph.edge(adj.edgeIndex);
                 if (edge.blocked) continue;
-                const double next = dist[u] + edge.weightedCost();
-                if (next < dist[adj.to]) {
-                    dist[adj.to] = next;
+
+                const double edgeWeight = distanceOnly ? edge.distance : edge.weightedCost();
+                const double next = best[u] + edgeWeight;
+
+                if (next < best[adj.to]) {
+                    best[adj.to] = next;
                     parent[adj.to] = u;
                     parentEdge[adj.to] = adj.edgeIndex;
                     heap.push({adj.to, next});
@@ -69,32 +73,63 @@ public:
             }
         }
 
-        if (dist[target] != INF) {
+        if (best[target] != INF) {
             result.reachable = true;
-            result.cost = dist[target];
             DynamicArray<int> reverseNodes;
             DynamicArray<int> reverseEdges;
+
             int cur = target;
             reverseNodes.pushBack(cur);
+
             while (cur != source) {
-                const int e = parentEdge[cur];
-                if (e < 0) break;
-                reverseEdges.pushBack(e);
-                const GraphEdge& edge = graph.edge(e);
+                const int edgeIndex = parentEdge[cur];
+                if (edgeIndex < 0) {
+                    result.reachable = false;
+                    result.nodes.clear();
+                    result.edges.clear();
+                    result.distance = 0.0;
+                    result.travelTime = 0;
+                    result.cost = 0.0;
+                    break;
+                }
+
+                reverseEdges.pushBack(edgeIndex);
+                const GraphEdge& edge = graph.edge(edgeIndex);
                 result.distance += edge.distance;
                 result.travelTime += edge.travelTime;
+                result.cost += edge.weightedCost();
+
                 cur = parent[cur];
                 reverseNodes.pushBack(cur);
             }
-            for (int i = static_cast<int>(reverseNodes.size()) - 1; i >= 0; --i) result.nodes.pushBack(reverseNodes[i]);
-            for (int i = static_cast<int>(reverseEdges.size()) - 1; i >= 0; --i) result.edges.pushBack(reverseEdges[i]);
+
+            if (result.reachable) {
+                for (int i = static_cast<int>(reverseNodes.size()) - 1; i >= 0; --i)
+                    result.nodes.pushBack(reverseNodes[i]);
+                for (int i = static_cast<int>(reverseEdges.size()) - 1; i >= 0; --i)
+                    result.edges.pushBack(reverseEdges[i]);
+            }
         }
 
-        delete[] dist;
+        delete[] best;
         delete[] parent;
         delete[] parentEdge;
         delete[] done;
         return result;
+    }
+
+public:
+    // Operational route: minimizes the weighted road cost
+    // (distance + time + risk + congestion + capacity penalty).
+    static RouteResult shortestPath(const Graph& graph, int source, int target) {
+        return compute(graph, source, target, false);
+    }
+
+    // Physical shortest-distance route: minimizes kilometers only.
+    // Used by Incident Analysis so the displayed "shortest distance/path"
+    // exactly matches the requested metric.
+    static RouteResult shortestDistancePath(const Graph& graph, int source, int target) {
+        return compute(graph, source, target, true);
     }
 };
 
