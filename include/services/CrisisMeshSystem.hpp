@@ -381,7 +381,7 @@ public:
                       << " | P=" << std::setw(3) << in.priorityScore << " | " << std::setw(28) << toString(in.status)
                       << " | " << (in.assignedResponderId.empty()?"-":in.assignedResponderId) << '\n';
         }
-        if (incidents_.empty()) std::cout << "No incidents.\n";
+        if (incidents_.empty()) std::cout << "No incident occurred.\n";
     }
 
     void showIncident(const std::string& id) const {
