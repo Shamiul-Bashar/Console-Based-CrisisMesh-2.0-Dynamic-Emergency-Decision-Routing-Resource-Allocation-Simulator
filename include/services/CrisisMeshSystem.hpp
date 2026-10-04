@@ -54,6 +54,32 @@ class CrisisMeshSystem {
         return nullptr;
     }
 
+    const Responder* responderById(const std::string& id) const {
+        for (std::size_t i = 0; i < responders_.size(); ++i)
+            if (responders_[i].id == id) return &responders_[i];
+        return nullptr;
+    }
+
+    const char* responderOperationalStatus(const Responder& responder) const {
+        if (responder.availability == ResponderAvailability::Offline) return "OFFLINE";
+        if (responder.availableStrength == 0) return "BUSY";
+        if (responder.onOperation() > 0) return "PARTIAL";
+        return "AVAILABLE";
+    }
+
+    Incident* highestReadyIncident() {
+        while (!priorityHeap_.empty()) {
+            const IncidentHeapEntry& top = priorityHeap_.top();
+            if (top.incidentIndex >= 0 &&
+                top.incidentIndex < static_cast<int>(incidents_.size()) &&
+                incidents_[top.incidentIndex].status == IncidentStatus::Prioritized) {
+                return &incidents_[top.incidentIndex];
+            }
+            priorityHeap_.pop();
+        }
+        return nullptr;
+    }
+
     bool routeUsesEdge(const Incident& incident, int edgeIndex) const {
         for (std::size_t i = 0; i < incident.routeEdges.size(); ++i)
             if (incident.routeEdges[i] == edgeIndex) return true;
@@ -80,22 +106,37 @@ class CrisisMeshSystem {
     }
 
     void seedOperationalData() {
-        const struct R { const char* id; const char* type; int loc; int cap; const char* base; } rs[] = {
-            {"FIRE-UNIT-01","FIRE_TRUCK",2,1,"Main Fire Station"},
-            {"FIRE-UNIT-02","FIRE_TRUCK",3,1,"East Fire Station"},
-            {"FIRE-UNIT-03","FIRE_TRUCK",17,1,"South Terminal Fire Post"},
-            {"AMB-UNIT-01","AMBULANCE",0,2,"Central Hospital"},
-            {"AMB-UNIT-02","AMBULANCE",1,2,"North Hospital"},
-            {"AMB-UNIT-03","AMBULANCE",9,2,"East Medical Post"},
-            {"AMB-UNIT-04","AMBULANCE",11,2,"West Shelter Medical Post"},
-            {"POLICE-UNIT-01","POLICE_UNIT",4,2,"Central Police Station"},
-            {"POLICE-UNIT-02","POLICE_UNIT",5,2,"North Police Station"},
-            {"POLICE-UNIT-03","POLICE_UNIT",15,2,"East Police Post"},
-            {"RESCUE-UNIT-01","RESCUE_TEAM",11,4,"West Shelter Rescue Base"},
-            {"RESCUE-UNIT-02","RESCUE_TEAM",12,4,"East Shelter Rescue Base"}
+        struct R {
+            const char* id;
+            const char* type;
+            int loc;
+            int cap;
+            const char* base;
+            int totalStrength;
+            const char* contact;
         };
-        for (const auto& r : rs)
-            responders_.pushBack({r.id,r.type,r.loc,ResponderAvailability::Available,r.cap,r.base,""});
+
+        const R rs[] = {
+            {"FIRE-UNIT-01","FIRE_TRUCK",2,1,"Main Fire Station",1,"201"},
+            {"FIRE-UNIT-02","FIRE_TRUCK",3,1,"East Fire Station",1,"202"},
+            {"FIRE-UNIT-03","FIRE_TRUCK",17,1,"Bus Terminal Fire Unit",1,"203"},
+            {"AMB-UNIT-01","AMBULANCE",0,2,"Central Hospital",1,"301"},
+            {"AMB-UNIT-02","AMBULANCE",1,2,"North Hospital",1,"302"},
+            {"AMB-UNIT-03","AMBULANCE",9,2,"East Medical Response Post",1,"303"},
+            {"AMB-UNIT-04","AMBULANCE",11,2,"Shelter A Medical Post",1,"304"},
+            {"POLICE-UNIT-01","POLICE_UNIT",4,2,"Central Police Station",30,"401"},
+            {"POLICE-UNIT-02","POLICE_UNIT",5,2,"North Police Station",24,"402"},
+            {"POLICE-UNIT-03","POLICE_UNIT",15,2,"Residential Zone C Police Post",18,"403"},
+            {"RESCUE-UNIT-01","RESCUE_TEAM",11,4,"Shelter A Rescue Base",1,"501"},
+            {"RESCUE-UNIT-02","RESCUE_TEAM",12,4,"Shelter B Rescue Base",1,"502"}
+        };
+
+        for (const auto& r : rs) {
+            responders_.pushBack({
+                r.id, r.type, r.loc, ResponderAvailability::Available, r.cap,
+                r.base, "", r.totalStrength, r.totalStrength, r.contact
+            });
+        }
 
         shelters_.pushBack({"SHELTER-01",11,120,35,true});
         shelters_.pushBack({"SHELTER-02",12,100,20,true});
@@ -206,48 +247,297 @@ public:
     }
 
     bool dispatchHighest(std::string& out) {
-        if (priorityHeap_.empty()) { out = "Priority Max Heap is empty."; return false; }
-        Incident& incident = incidents_[priorityHeap_.pop().incidentIndex];
+        out = "Automatic dispatch is disabled. Process the incident, then use Incident Analysis for routing and manual assignment.";
+        return false;
+    }
+
+    std::string highestReadyIncidentId() {
+        Incident* incident = highestReadyIncident();
+        return incident ? incident->id : "";
+    }
+
+    bool isReadyForAnalysis(const std::string& id) const {
+        const Incident* incident = findIncident(id);
+        return incident && incident->status == IncidentStatus::Prioritized;
+    }
+
+    std::size_t analysisReadyCount() const {
+        std::size_t count = 0;
+        for (std::size_t i = 0; i < incidents_.size(); ++i)
+            if (incidents_[i].status == IncidentStatus::Prioritized) ++count;
+        return count;
+    }
+
+    void showAnalysisReadyIncidents() const {
+        std::cout << "\n================ READY FOR INCIDENT ANALYSIS ================\n";
+        std::cout << std::left << std::setw(12) << "Incident"
+                  << std::setw(13) << "Type"
+                  << std::setw(12) << "Location"
+                  << std::setw(11) << "Priority"
+                  << "Required Response\n";
+        std::cout << std::string(76, '-') << '\n';
+
+        int shown = 0;
+        for (std::size_t i = 0; i < incidents_.size(); ++i) {
+            const Incident& incident = incidents_[i];
+            if (incident.status != IncidentStatus::Prioritized) continue;
+            std::cout << std::left << std::setw(12) << incident.id
+                      << std::setw(13) << toString(incident.type)
+                      << std::setw(12) << incident.locationId
+                      << std::setw(11) << incident.priorityScore
+                      << responseCategoryName(incident.type) << '\n';
+            ++shown;
+        }
+
+        if (!shown)
+            std::cout << "No processed incident is waiting for analysis. Process an incident in Incident Center first.\n";
+    }
+
+    void showIncidentResponseProfile(const std::string& id) const {
+        const Incident* incident = findIncident(id);
+        if (!incident) {
+            std::cout << "\nIncident not found.\n";
+            return;
+        }
+
+        std::cout << "\n================ INCIDENT RESPONSE PROFILE ================\n"
+                  << std::left << std::setw(20) << "Incident ID" << ": " << incident->id << '\n'
+                  << std::setw(20) << "Incident Type" << ": " << toString(incident->type) << '\n'
+                  << std::setw(20) << "Incident Location" << ": " << incident->locationId
+                  << " - " << graph_.node(incident->locationIndex).name << '\n'
+                  << std::setw(20) << "Priority" << ": " << incident->priorityScore << '\n'
+                  << std::setw(20) << "Response Category" << ": " << responseCategoryName(incident->type) << '\n'
+                  << std::setw(20) << "Required Resource" << ": " << incident->requiredResponder << '\n';
+
+        std::cout << "\nCompatible Response Resources\n";
+        std::cout << std::left << std::setw(18) << "Responder"
+                  << std::setw(12) << "Location"
+                  << std::setw(28) << "Facility"
+                  << std::setw(11) << "Measure"
+                  << std::setw(8) << "Total"
+                  << std::setw(11) << "Available"
+                  << std::setw(13) << "Operation"
+                  << "Status\n";
+        std::cout << std::string(112, '-') << '\n';
+
+        int shown = 0;
+        for (std::size_t i = 0; i < responders_.size(); ++i) {
+            const Responder& r = responders_[i];
+            if (r.type != incident->requiredResponder) continue;
+            std::cout << std::left << std::setw(18) << r.id
+                      << std::setw(12) << graph_.node(r.currentLocation).id
+                      << std::setw(28) << r.baseFacility
+                      << std::setw(11) << responderStrengthLabel(r.type)
+                      << std::setw(8) << r.totalStrength
+                      << std::setw(11) << r.availableStrength
+                      << std::setw(13) << r.onOperation()
+                      << responderOperationalStatus(r) << '\n';
+            ++shown;
+        }
+        if (!shown) std::cout << "No compatible response resource configured.\n";
+    }
+
+    void runIncidentBfs(const std::string& id) const {
+        const Incident* incident = findIncident(id);
+        if (!incident) { std::cout << "Incident not found.\n"; return; }
+        std::cout << "\nBFS reachability starting from the incident location.\n";
+        runBfs(incident->locationId);
+    }
+
+    void runIncidentDfs(const std::string& id) const {
+        const Incident* incident = findIncident(id);
+        if (!incident) { std::cout << "Incident not found.\n"; return; }
+        std::cout << "\nDFS reachability starting from the incident location.\n";
+        runDfs(incident->locationId);
+    }
+
+    void runIncidentDijkstraAnalysis(const std::string& id) const {
+        const Incident* incident = findIncident(id);
+        if (!incident) { std::cout << "Incident not found.\n"; return; }
+
         Candidate candidates[32]{};
         std::size_t count = 0;
-        for (std::size_t i = 0; i < responders_.size(); ++i) {
-            Responder& r = responders_[i];
-            if (r.type != incident.requiredResponder || r.availability != ResponderAvailability::Available) continue;
-            RouteResult route = Dijkstra::shortestPath(graph_, r.currentLocation, incident.locationIndex);
-            candidates[count++] = {static_cast<int>(i), r.id, route.reachable, route.cost, route.distance, route.travelTime};
-        }
-        if (!count) { incident.status = IncidentStatus::WaitingForResource; out = "No compatible available responder."; return false; }
-        MergeSort::sort(candidates, count, [](const Candidate& a, const Candidate& b){ return candidateComesBefore(a,b); });
-        if (!candidates[0].reachable) { incident.status = IncidentStatus::Unreachable; out = "All compatible responders are unreachable."; return false; }
 
-        Responder& selected = responders_[candidates[0].responderIndex];
-        RouteResult route = Dijkstra::shortestPath(graph_, selected.currentLocation, incident.locationIndex);
-        selected.availability = ResponderAvailability::Assigned;
-        selected.assignedIncidentId = incident.id;
-        incident.assignedResponderId = selected.id;
-        incident.routeNodes = route.nodes;
-        incident.routeEdges = route.edges;
-        incident.routeCost = route.cost;
-        incident.routeDistance = route.distance;
-        incident.routeTravelTime = route.travelTime;
-        incident.status = IncidentStatus::EnRoute;
-        out = incident.id + " -> " + selected.id + " (Array candidates + Merge Sort + Dijkstra).";
+        for (std::size_t i = 0; i < responders_.size(); ++i) {
+            const Responder& r = responders_[i];
+            if (r.type != incident->requiredResponder) continue;
+            RouteResult route = Dijkstra::shortestPath(graph_, r.currentLocation, incident->locationIndex);
+            candidates[count++] = {
+                static_cast<int>(i), r.id, route.reachable,
+                route.cost, route.distance, route.travelTime
+            };
+        }
+
+        if (!count) {
+            std::cout << "\nNo compatible response resource is configured.\n";
+            return;
+        }
+
+        MergeSort::sort(candidates, count, [](const Candidate& a, const Candidate& b) {
+            if (a.reachable != b.reachable) return a.reachable && !b.reachable;
+            if (a.distance != b.distance) return a.distance < b.distance;
+            if (a.travelTime != b.travelTime) return a.travelTime < b.travelTime;
+            return a.responderId < b.responderId;
+        });
+
+        std::cout << "\n================ DIJKSTRA RESPONSE ANALYSIS ================\n"
+                  << "Incident : " << incident->id << " | " << toString(incident->type)
+                  << " | " << incident->locationId << " - " << graph_.node(incident->locationIndex).name << "\n\n";
+
+        std::cout << std::left << std::setw(18) << "Responder"
+                  << std::setw(12) << "Location"
+                  << std::setw(12) << "Available"
+                  << std::setw(13) << "Distance"
+                  << std::setw(11) << "Time"
+                  << "Route Status\n";
+        std::cout << std::string(78, '-') << '\n';
+
+        const Candidate* best = nullptr;
+        for (std::size_t i = 0; i < count; ++i) {
+            const Candidate& c = candidates[i];
+            const Responder& r = responders_[c.responderIndex];
+            std::string distance = c.reachable ? (std::to_string(c.distance).substr(0, 4) + " km") : "-";
+            std::string time = c.reachable ? (std::to_string(c.travelTime) + " min") : "-";
+            std::cout << std::left << std::setw(18) << r.id
+                      << std::setw(12) << graph_.node(r.currentLocation).id
+                      << std::setw(12) << r.availableStrength
+                      << std::setw(13) << distance
+                      << std::setw(11) << time
+                      << (c.reachable ? "REACHABLE" : "UNREACHABLE") << '\n';
+
+            if (!best && c.reachable && r.availableStrength > 0 &&
+                r.availability != ResponderAvailability::Offline) {
+                best = &candidates[i];
+            }
+        }
+
+        if (!best) {
+            std::cout << "\nNo currently available compatible responder has a reachable route.\n";
+            return;
+        }
+
+        const Responder& selected = responders_[best->responderIndex];
+        RouteResult route = Dijkstra::shortestPath(graph_, selected.currentLocation, incident->locationIndex);
+
+        std::cout << "\n================ RECOMMENDED SHORTEST RESPONSE ================\n"
+                  << std::left << std::setw(20) << "Recommended Resource" << ": " << selected.id << '\n'
+                  << std::setw(20) << "From" << ": " << graph_.node(selected.currentLocation).id
+                  << " - " << graph_.node(selected.currentLocation).name << '\n'
+                  << std::setw(20) << "To" << ": " << incident->locationId
+                  << " - " << graph_.node(incident->locationIndex).name << '\n'
+                  << std::setw(20) << "Distance" << ": " << std::fixed << std::setprecision(1)
+                  << route.distance << " km\n"
+                  << std::setw(20) << "Travel Time" << ": " << route.travelTime << " min\n"
+                  << std::setw(20) << "Route Cost" << ": " << std::setprecision(2) << route.cost << "\n\n"
+                  << ">>> SHORTEST PATH: ";
+
+        for (std::size_t i = 0; i < route.nodes.size(); ++i) {
+            if (i) std::cout << " -> ";
+            std::cout << graph_.node(route.nodes[i]).id;
+        }
+        std::cout << " <<<\n";
+        std::cout.unsetf(std::ios::floatfield);
+    }
+
+    int responderAvailableStrength(const std::string& id) const {
+        const Responder* responder = responderById(id);
+        return responder ? responder->availableStrength : -1;
+    }
+
+    std::string responderMeasure(const std::string& id) const {
+        const Responder* responder = responderById(id);
+        return responder ? responderStrengthLabel(responder->type) : "UNITS";
+    }
+
+    bool assignResponse(const std::string& incidentId, const std::string& responderId,
+                        int strength, std::string& out) {
+        Incident* incident = findIncident(incidentId);
+        if (!incident) { out = "Incident not found."; return false; }
+        if (incident->status != IncidentStatus::Prioritized) {
+            out = "Incident is not ready for assignment. Process it in Incident Center first.";
+            return false;
+        }
+
+        Responder* responder = responderById(responderId);
+        if (!responder) { out = "Responder not found."; return false; }
+        if (responder->type != incident->requiredResponder) {
+            out = "Selected responder is not compatible with this incident type.";
+            return false;
+        }
+        if (responder->availability == ResponderAvailability::Offline) {
+            out = "Selected responder is OFFLINE.";
+            return false;
+        }
+        if (strength <= 0 || strength > responder->availableStrength) {
+            out = "Requested assignment exceeds available response strength.";
+            return false;
+        }
+        if (responder->type != "POLICE_UNIT" && strength != 1) {
+            out = "This resource is assigned as a single operational unit/team.";
+            return false;
+        }
+
+        RouteResult route = Dijkstra::shortestPath(graph_, responder->currentLocation, incident->locationIndex);
+        if (!route.reachable) {
+            out = "Selected responder has no reachable route to the incident.";
+            return false;
+        }
+
+        responder->availableStrength -= strength;
+        if (responder->availableStrength == 0)
+            responder->availability = ResponderAvailability::Busy;
+        else
+            responder->availability = ResponderAvailability::Available;
+
+        if (responder->type != "POLICE_UNIT")
+            responder->assignedIncidentId = incident->id;
+
+        incident->assignedResponderId = responder->id;
+        incident->assignedStrength = strength;
+        incident->routeNodes = route.nodes;
+        incident->routeEdges = route.edges;
+        incident->routeCost = route.cost;
+        incident->routeDistance = route.distance;
+        incident->routeTravelTime = route.travelTime;
+        incident->status = IncidentStatus::EnRoute;
+
+        Incident* top = highestReadyIncident();
+        if (top && top->id == incident->id) priorityHeap_.pop();
+
+        out = "Response assigned successfully.\nIncident: " + incident->id +
+              " | Resource: " + responder->id +
+              " | Assigned " + std::to_string(strength) + " " + responderStrengthLabel(responder->type) +
+              " | Remaining available: " + std::to_string(responder->availableStrength);
         return true;
     }
 
     bool markResponseCompleted(const std::string& id, std::string& out) {
         Incident* incident = findIncident(id);
         if (!incident || (incident->status != IncidentStatus::EnRoute && incident->status != IncidentStatus::Assigned)) {
-            out = "Incident is not actively dispatched."; return false;
+            out = "Incident is not actively dispatched.";
+            return false;
         }
+
         Responder* responder = responderById(incident->assignedResponderId);
         if (responder) {
-            responder->currentLocation = incident->locationIndex;
-            responder->availability = ResponderAvailability::Available;
-            responder->assignedIncidentId.clear();
+            responder->availableStrength += incident->assignedStrength;
+            if (responder->availableStrength > responder->totalStrength)
+                responder->availableStrength = responder->totalStrength;
+
+            if (responder->type != "POLICE_UNIT") {
+                responder->currentLocation = incident->locationIndex;
+                responder->assignedIncidentId.clear();
+            }
+
+            if (responder->availability != ResponderAvailability::Offline)
+                responder->availability = responder->availableStrength > 0
+                    ? ResponderAvailability::Available
+                    : ResponderAvailability::Busy;
         }
+
         incident->status = IncidentStatus::AwaitingUserConfirmation;
-        out = "Field response complete; reporting user must answer YES/NO.";
+        out = "Field response completed. Assigned response strength returned to availability. "
+              "The reporting user must now confirm YES/NO.";
         return true;
     }
 
@@ -272,6 +562,7 @@ public:
         if (incident->urgency < 5) ++incident->urgency;
         incident->priorityScore = calculatePriority(incident->severity, incident->urgency, incident->victimCount, incident->type);
         incident->assignedResponderId.clear();
+        incident->assignedStrength = 0;
         incident->routeNodes.clear(); incident->routeEdges.clear();
         incident->status = IncidentStatus::Queued;
         const int* index = incidentIndex_.get(id);
@@ -405,13 +696,12 @@ public:
     bool updateResponderStatus(const std::string& id, ResponderAvailability status, std::string& out) {
         Responder* responder = responderById(id);
         if (!responder) { out = "Responder not found."; return false; }
-        if (!responder->assignedIncidentId.empty()) {
-            out = "Responder is assigned to " + responder->assignedIncidentId +
-                  ". Complete the incident before changing status.";
+        if (responder->onOperation() > 0) {
+            out = "Responder has active deployed strength. Complete the active response before changing status.";
             return false;
         }
         if (status == ResponderAvailability::Assigned) {
-            out = "ASSIGNED status is controlled automatically by dispatch.";
+            out = "ASSIGNED status is controlled automatically by incident assignment.";
             return false;
         }
         responder->availability = status;
@@ -422,8 +712,8 @@ public:
     bool updateResponderLocation(const std::string& id, const std::string& locationId, std::string& out) {
         Responder* responder = responderById(id);
         if (!responder) { out = "Responder not found."; return false; }
-        if (!responder->assignedIncidentId.empty()) {
-            out = "Responder location cannot be edited while assigned to an active incident.";
+        if (responder->onOperation() > 0) {
+            out = "Responder location cannot be edited while response strength is on operation.";
             return false;
         }
         const int location = findLocationBinary(locationId);
@@ -578,6 +868,7 @@ public:
                   << std::setw(18) << "Status" << ": " << toString(in->status) << '\n'
                   << std::setw(18) << "Priority" << ": " << in->priorityScore << '\n'
                   << std::setw(18) << "Responder" << ": " << (in->assignedResponderId.empty() ? "-" : in->assignedResponderId) << '\n'
+                  << std::setw(18) << "Assigned Strength" << ": " << in->assignedStrength << '\n'
                   << std::setw(18) << "Route Cost" << ": " << std::fixed << std::setprecision(2) << in->routeCost << '\n'
                   << std::setw(18) << "Distance" << ": " << std::setprecision(1) << in->routeDistance << " km\n"
                   << std::setw(18) << "Travel Time" << ": " << in->routeTravelTime << " min\n"
@@ -587,14 +878,28 @@ public:
     }
 
     void showRespondersResources() const {
-        std::cout << "\n================ RESPONDERS =================\n";
-        std::cout << std::left << std::setw(18) << "ID" << std::setw(16) << "Type"
-                  << std::setw(13) << "Status" << std::setw(12) << "Location" << '\n';
-        std::cout << std::string(59, '-') << '\n';
-        for (std::size_t i = 0; i < responders_.size(); ++i)
-            std::cout << std::left << std::setw(18) << responders_[i].id << std::setw(16) << responders_[i].type
-                      << std::setw(13) << toString(responders_[i].availability)
-                      << std::setw(12) << graph_.node(responders_[i].currentLocation).id << '\n';
+        std::cout << "\n===================================== RESPONDERS =====================================\n";
+        std::cout << std::left << std::setw(18) << "ID"
+                  << std::setw(16) << "Type"
+                  << std::setw(11) << "Location"
+                  << std::setw(11) << "Measure"
+                  << std::setw(8) << "Total"
+                  << std::setw(11) << "Available"
+                  << std::setw(13) << "Operation"
+                  << "Status\n";
+        std::cout << std::string(99, '-') << '\n';
+
+        for (std::size_t i = 0; i < responders_.size(); ++i) {
+            const Responder& r = responders_[i];
+            std::cout << std::left << std::setw(18) << r.id
+                      << std::setw(16) << r.type
+                      << std::setw(11) << graph_.node(r.currentLocation).id
+                      << std::setw(11) << responderStrengthLabel(r.type)
+                      << std::setw(8) << r.totalStrength
+                      << std::setw(11) << r.availableStrength
+                      << std::setw(13) << r.onOperation()
+                      << responderOperationalStatus(r) << '\n';
+        }
 
         std::cout << "\n================= SHELTERS ==================\n";
         std::cout << std::left << std::setw(14) << "ID" << std::setw(11) << "Capacity"
@@ -611,6 +916,51 @@ public:
         for (std::size_t i = 0; i < resources_.size(); ++i)
             std::cout << std::left << std::setw(18) << resources_[i].type << std::setw(12) << resources_[i].quantity
                       << resources_[i].source << '\n';
+    }
+
+    void showEmergencyContacts() const {
+        std::cout << "\n================ EMERGENCY CONTACTS ================\n";
+        std::cout << std::left << std::setw(18) << "Response Unit"
+                  << std::setw(16) << "Type"
+                  << std::setw(12) << "Location"
+                  << std::setw(30) << "Facility"
+                  << "Number\n";
+        std::cout << std::string(86, '-') << '\n';
+
+        for (std::size_t i = 0; i < responders_.size(); ++i) {
+            const Responder& r = responders_[i];
+            std::cout << std::left << std::setw(18) << r.id
+                      << std::setw(16) << r.type
+                      << std::setw(12) << graph_.node(r.currentLocation).id
+                      << std::setw(30) << r.baseFacility
+                      << r.contactNumber << '\n';
+        }
+        std::cout << "\nSimulation contact numbers are for this academic system only.\n";
+    }
+
+    void showActiveDispatches() const {
+        std::cout << "\n================ ACTIVE DISPATCHES ================\n";
+        std::cout << std::left << std::setw(12) << "Incident"
+                  << std::setw(13) << "Type"
+                  << std::setw(12) << "Location"
+                  << std::setw(18) << "Responder"
+                  << std::setw(11) << "Assigned"
+                  << "Status\n";
+        std::cout << std::string(82, '-') << '\n';
+
+        int shown = 0;
+        for (std::size_t i = 0; i < incidents_.size(); ++i) {
+            const Incident& in = incidents_[i];
+            if (in.status != IncidentStatus::EnRoute && in.status != IncidentStatus::Assigned) continue;
+            std::cout << std::left << std::setw(12) << in.id
+                      << std::setw(13) << toString(in.type)
+                      << std::setw(12) << in.locationId
+                      << std::setw(18) << in.assignedResponderId
+                      << std::setw(11) << in.assignedStrength
+                      << toString(in.status) << '\n';
+            ++shown;
+        }
+        if (!shown) std::cout << "No active dispatch is currently running.\n";
     }
 
     void showRoads() const {
@@ -722,7 +1072,8 @@ public:
         for (std::size_t i=0;i<incidents_.size();++i)
             (incidents_[i].status==IncidentStatus::Closed ? ++closed : ++active);
         for (std::size_t i=0;i<responders_.size();++i)
-            if (responders_[i].availability==ResponderAvailability::Available) ++available;
+            if (responders_[i].availableStrength > 0 &&
+                responders_[i].availability != ResponderAvailability::Offline) ++available;
         for (int i=0;i<graph_.edgeCount();++i) if (graph_.edge(i).blocked) ++blocked;
         std::cout << "\n===== CRISISMESH COMMAND DASHBOARD =====\n"
                   << "Users: " << users_.size() << " | Incidents: " << incidents_.size() << " | Active: " << active << " | Closed: " << closed << '\n'
