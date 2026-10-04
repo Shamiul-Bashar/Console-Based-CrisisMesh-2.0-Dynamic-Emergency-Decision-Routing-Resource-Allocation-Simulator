@@ -694,8 +694,10 @@ public:
         if (!incident) { out = "Incident not found."; return false; }
         if (incident->status == IncidentStatus::Closed ||
             incident->status == IncidentStatus::Resolved ||
-            incident->status == IncidentStatus::Cancelled) {
-            out = "Shelter allocation is only available for active incidents.";
+            incident->status == IncidentStatus::Cancelled ||
+            incident->status == IncidentStatus::ResponseCompleted ||
+            incident->status == IncidentStatus::AwaitingUserConfirmation) {
+            out = "Shelter allocation is only available while emergency response is active.";
             return false;
         }
         if (!incident->shelterId.empty()) {
@@ -724,8 +726,10 @@ public:
         if (!incident) { out = "Incident not found."; return false; }
         if (incident->status == IncidentStatus::Closed ||
             incident->status == IncidentStatus::Resolved ||
-            incident->status == IncidentStatus::Cancelled) {
-            out = "Supply allocation is only available for active incidents.";
+            incident->status == IncidentStatus::Cancelled ||
+            incident->status == IncidentStatus::ResponseCompleted ||
+            incident->status == IncidentStatus::AwaitingUserConfirmation) {
+            out = "Supply allocation is only available while emergency response is active.";
             return false;
         }
         if (quantity <= 0) { out = "Quantity must be greater than zero."; return false; }
@@ -973,19 +977,27 @@ public:
         if (!in) { std::cout << "\nIncident not found.\n"; return; }
         const std::string locationName = graph_.node(in->locationIndex).name;
         std::cout << "\n================ INCIDENT DETAILS ================\n"
-                  << std::left << std::setw(18) << "Incident ID" << ": " << in->id << '\n'
-                  << std::setw(18) << "Type" << ": " << toString(in->type) << '\n'
-                  << std::setw(18) << "Location" << ": " << in->locationId << " - " << locationName << '\n'
-                  << std::setw(18) << "Status" << ": " << toString(in->status) << '\n'
-                  << std::setw(18) << "Priority" << ": " << in->priorityScore << '\n'
-                  << std::setw(18) << "Responder" << ": " << (in->assignedResponderId.empty() ? "-" : in->assignedResponderId) << '\n'
-                  << std::setw(18) << "Assigned Strength" << ": " << in->assignedStrength << '\n'
-                  << std::setw(18) << "Route Cost" << ": " << std::fixed << std::setprecision(2) << in->routeCost << '\n'
-                  << std::setw(18) << "Distance" << ": " << std::setprecision(1) << in->routeDistance << " km\n"
-                  << std::setw(18) << "Travel Time" << ": " << in->routeTravelTime << " min\n"
-                  << std::setw(18) << "Description" << ": " << in->description << '\n'
-                  << "==================================================\n";
-        std::cout.unsetf(std::ios::floatfield);
+                  << std::left << std::setw(20) << "Incident ID" << ": " << in->id << '\n'
+                  << std::setw(20) << "Type" << ": " << toString(in->type) << '\n'
+                  << std::setw(20) << "Location" << ": " << in->locationId << " - " << locationName << '\n'
+                  << std::setw(20) << "Status" << ": " << toString(in->status) << '\n'
+                  << std::setw(20) << "Priority" << ": " << in->priorityScore
+                  << " (" << operationalPriorityName(in->priorityScore) << ")\n"
+                  << std::setw(20) << "Description" << ": " << in->description << '\n';
+
+        if (in->assignedResponderId.empty()) {
+            std::cout << std::setw(20) << "Responder" << ": Not assigned\n"
+                      << std::setw(20) << "Route" << ": Not calculated\n";
+        } else {
+            std::cout << std::setw(20) << "Responder" << ": " << in->assignedResponderId << '\n'
+                      << std::setw(20) << "Assigned Strength" << ": " << in->assignedStrength << '\n'
+                      << std::setw(20) << "Operational Cost" << ": " << std::fixed << std::setprecision(2) << in->routeCost << '\n'
+                      << std::setw(20) << "Distance" << ": " << std::setprecision(1) << in->routeDistance << " km\n"
+                      << std::setw(20) << "Travel Time" << ": " << in->routeTravelTime << " min\n";
+            std::cout.unsetf(std::ios::floatfield);
+        }
+
+        std::cout << "==================================================\n";
     }
 
     void showRespondersResources() const {
@@ -1061,7 +1073,10 @@ public:
         int shown = 0;
         for (std::size_t i = 0; i < incidents_.size(); ++i) {
             const Incident& in = incidents_[i];
-            if (in.status != IncidentStatus::EnRoute && in.status != IncidentStatus::Assigned) continue;
+            if (in.status != IncidentStatus::EnRoute &&
+                in.status != IncidentStatus::Assigned &&
+                in.status != IncidentStatus::RerouteRequired &&
+                in.status != IncidentStatus::Unreachable) continue;
             std::cout << std::left << std::setw(12) << in.id
                       << std::setw(13) << toString(in.type)
                       << std::setw(12) << in.locationId
