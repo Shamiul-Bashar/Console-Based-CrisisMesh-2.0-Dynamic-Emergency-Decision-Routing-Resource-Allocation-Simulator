@@ -230,7 +230,9 @@ void forgotPassword(CrisisMeshSystem& system) {
         std::cout << "Password must contain at least 6 characters with a letter and a digit.\n";
         return;
     }
-    std::cout << (system.resetPassword(username, password) ? "Password reset successful.\n" : "Username not found.\n");
+    std::cout << (system.resetPassword(username, password)
+                  ? "Password reset successful.\n"
+                  : "Password reset failed. Please check persistent storage permissions.\n");
 }
 
 void reportIncident(CrisisMeshSystem& system, int userId) {
