@@ -57,7 +57,11 @@ int main() {
 
     const std::string testDir = "test_runtime_data";
     const std::string persistenceFile = testDir + "/users_persistence.txt";
+    const std::string persistenceIncidents = testDir + "/incidents_persistence.txt";
+    const std::string persistenceHistory = testDir + "/history_persistence.txt";
     const std::string workflowFile = testDir + "/users_workflow.txt";
+    const std::string workflowIncidents = testDir + "/incidents_workflow.txt";
+    const std::string workflowHistory = testDir + "/history_workflow.txt";
     std::filesystem::remove_all(testDir);
 
     // Persistent user-account lifecycle.
@@ -70,7 +74,7 @@ int main() {
 
     int persistentUserId = -1;
     {
-        CrisisMeshSystem firstRun(persistenceFile);
+        CrisisMeshSystem firstRun(persistenceFile, persistenceIncidents, persistenceHistory);
         persistentUserId = firstRun.registerUser(persistentUser);
         assert(persistentUserId == 1);
         assert(firstRun.authenticateUser("persistent", "Keep123") == persistentUserId);
@@ -78,13 +82,13 @@ int main() {
     }
 
     {
-        CrisisMeshSystem secondRun(persistenceFile);
+        CrisisMeshSystem secondRun(persistenceFile, persistenceIncidents, persistenceHistory);
         assert(secondRun.authenticateUser("persistent", "Keep123") == persistentUserId);
         assert(secondRun.resetPassword("persistent", "New456"));
     }
 
     {
-        CrisisMeshSystem thirdRun(persistenceFile);
+        CrisisMeshSystem thirdRun(persistenceFile, persistenceIncidents, persistenceHistory);
         assert(thirdRun.authenticateUser("persistent", "New456") == persistentUserId);
         std::string deleteMessage;
         assert(thirdRun.deleteUserAccount(persistentUserId, "New456", deleteMessage));
@@ -92,7 +96,7 @@ int main() {
     }
 
     {
-        CrisisMeshSystem fourthRun(persistenceFile);
+        CrisisMeshSystem fourthRun(persistenceFile, persistenceIncidents, persistenceHistory);
         assert(!fourthRun.usernameExists("persistent"));
         User nextUser = persistentUser;
         nextUser.username = "nextuser";
@@ -101,7 +105,7 @@ int main() {
         assert(fourthRun.registerUser(nextUser) == 2); // Deleted IDs are not reused.
     }
 
-    CrisisMeshSystem system(workflowFile);
+    CrisisMeshSystem system(workflowFile, workflowIncidents, workflowHistory);
     User user;
     user.name = "Test User";
     user.email = "test@example.com";
@@ -141,13 +145,14 @@ int main() {
     assert(system.assignResponse(policeIncidentB, "POLICE-UNIT-01", 5, message));
     assert(system.responderAvailableStrength("POLICE-UNIT-01") == 15);
 
+    // Shelter allocation is valid while response is active and cannot be double-counted.
+    assert(system.allocateShelter(policeIncidentA, message));
+    assert(!system.allocateShelter(policeIncidentA, message));
+
     assert(system.markResponseCompleted(policeIncidentA, message));
     assert(system.responderAvailableStrength("POLICE-UNIT-01") == 25);
     assert(system.markResponseCompleted(policeIncidentB, message));
     assert(system.responderAvailableStrength("POLICE-UNIT-01") == 30);
-
-    // Shelter allocation cannot be counted twice for the same incident.
-    assert(system.allocateShelter(policeIncidentA, message));
     assert(!system.allocateShelter(policeIncidentA, message));
 
     // Fire unit: discrete unit, no double assignment.
@@ -172,6 +177,29 @@ int main() {
     assert(system.assignResponse(fireIncidentA, "FIRE-UNIT-03", 1, message));
     assert(system.markResponseCompleted(fireIncidentA, message));
     assert(system.responderAvailableStrength("FIRE-UNIT-03") == 1);
+    assert(system.confirmResolution(userId, fireIncidentA, true, "", message));
+
+    // Leave one new incident queued so startup reconstruction can be verified.
+    const std::string restartQueuedIncident = system.createIncident(
+        userId, IncidentType::Medical, "LOC-017", 3, 3, 1, "Restart persistence check");
+    assert(!restartQueuedIncident.empty());
+    assert(std::filesystem::exists(workflowIncidents));
+    assert(std::filesystem::exists(workflowHistory));
+
+    {
+        CrisisMeshSystem restarted(workflowFile, workflowIncidents, workflowHistory);
+        assert(restarted.authenticateUser("tester", "Test123") == userId);
+        assert(restarted.hasUserHistory(userId));
+
+        const Incident* closed = restarted.findIncident(fireIncidentA);
+        assert(closed != nullptr);
+        assert(closed->status == IncidentStatus::Closed);
+
+        const Incident* queued = restarted.findIncident(restartQueuedIncident);
+        assert(queued != nullptr);
+        assert(queued->status == IncidentStatus::Queued);
+        assert(restarted.pendingIntakeCount() >= 1);
+    }
 
     // Multiple road block + LIFO undo.
     assert(system.blockRoad("R-001", message));
