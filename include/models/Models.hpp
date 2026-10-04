@@ -70,6 +70,25 @@ inline std::string requiredResponderType(IncidentType type) {
     return "RESCUE_TEAM";
 }
 
+inline const char* responseCategoryName(IncidentType type) {
+    switch (type) {
+        case IncidentType::Police: return "LAW ENFORCEMENT RESPONSE";
+        case IncidentType::Fire: return "FIRE RESPONSE";
+        case IncidentType::Medical:
+        case IncidentType::Accident: return "MEDICAL RESPONSE";
+        case IncidentType::Rescue:
+        case IncidentType::Flood:
+        case IncidentType::Structural: return "RESCUE RESPONSE";
+    }
+    return "EMERGENCY RESPONSE";
+}
+
+inline const char* responderStrengthLabel(const std::string& type) {
+    if (type == "POLICE_UNIT") return "OFFICERS";
+    if (type == "RESCUE_TEAM") return "TEAMS";
+    return "UNITS";
+}
+
 struct User {
     int id{0};
     std::string name;
@@ -94,6 +113,7 @@ struct Incident {
     std::string description;
     std::string requiredResponder;
     std::string assignedResponderId;
+    int assignedStrength{0};
     bool userConfirmedResolved{false};
     std::string escalationReason;
     std::string shelterId;
@@ -114,6 +134,11 @@ struct Responder {
     int capacity{1};
     std::string baseFacility;
     std::string assignedIncidentId;
+    int totalStrength{1};
+    int availableStrength{1};
+    std::string contactNumber;
+
+    int onOperation() const { return totalStrength - availableStrength; }
 };
 
 struct Shelter {
