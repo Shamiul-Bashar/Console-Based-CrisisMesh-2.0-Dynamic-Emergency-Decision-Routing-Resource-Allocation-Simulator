@@ -15,6 +15,7 @@ This edition is built for a Data Structures & Algorithms project demonstration. 
 - Confirm `NO` with an escalation reason when more help is needed
 - Read direct and broadcast Author messages
 - View closed incident history and profile
+- View Emergency Contacts for every response unit using fixed 3-digit simulation numbers
 
 ### Author Portal
 - Author login + random simulated console OTP
@@ -27,7 +28,7 @@ This edition is built for a Data Structures & Algorithms project demonstration. 
   5. Responders & Resources
   6. User Directory
   7. Message Center
-  8. BFS / DFS Analysis
+  8. Incident Analysis
   9. Archive & History
   10. DSA Summary
 - Every section opens as its own screen and always provides `0. Back`, even when no data exists.
@@ -38,12 +39,16 @@ This edition is built for a Data Structures & Algorithms project demonstration. 
 ```text
 User emergency report
   -> manual FIFO Queue
-  -> deterministic priority calculation
-  -> manual Max Heap
-  -> compatible responder filtering in Array
-  -> manual Merge Sort candidate ranking
-  -> Graph + manual Min Heap Dijkstra
-  -> responder dispatch / EN_ROUTE
+  -> Author processes incident
+  -> priority calculation + manual Max Heap
+  -> Incident Analysis
+     -> type-specific response category
+     -> compatible responder availability
+     -> BFS / DFS reachability
+     -> Dijkstra comparison for every compatible responder
+     -> shortest response path recommendation
+  -> Author manually assigns responder / response strength
+  -> EN_ROUTE
   -> optional road block + Stack undo + reroute
   -> Author marks field response complete
   -> User confirms YES or NO
@@ -63,12 +68,12 @@ User emergency report
 | BFS | `include/algorithms/BFS.hpp` | Open-road reachability / level traversal |
 | DFS | `include/algorithms/DFS.hpp` | Open-road depth traversal |
 | Searching | manual binary search in `CrisisMeshSystem` | Location validation/search |
-| Sorting | `include/algorithms/MergeSort.hpp` | Responder candidate ranking |
-| Max Heap | `include/dsa/MaxHeap.hpp` | Highest-priority emergency scheduling |
+| Sorting | `include/algorithms/MergeSort.hpp` | Incident-analysis responder ranking by reachable route, distance and time |
+| Max Heap | `include/dsa/MaxHeap.hpp` | Highest-priority processed incident in Incident Analysis |
 | Min Heap | `include/dsa/MinHeap.hpp` | Dijkstra frontier |
 | Hash Table | `include/dsa/HashTable.hpp` | Fast incident and username lookup |
 | Graph | `include/graph/Graph.hpp` | 20-node, 31-road city network |
-| Dijkstra | `include/algorithms/Dijkstra.hpp` | Dispatch, rerouting, shelter selection |
+| Dijkstra | `include/algorithms/Dijkstra.hpp` | Compare compatible responders, recommend shortest response, reroute, shelter selection |
 
 > STL containers are intentionally avoided for the assessed Array/Linked List/Stack/Queue/Tree/Heap/Hash structures. `std::vector` is used only inside the graph adjacency representation, matching the project instruction that STL is acceptable for graph work.
 
@@ -102,15 +107,16 @@ QUEUED
 
 Additional states include `WAITING_FOR_RESOURCE`, `REROUTE_REQUIRED`, `UNREACHABLE`, and `CANCELLED`.
 
-## Simulated OTP
+## Console Verification
 
-This console edition does **not** send email or SMS. Every verification generates a random 6-digit OTP and displays it in the terminal:
+Authentication workflows use a random 6-digit console verification code.
 
 ```text
-[SIMULATED OTP - AUTHOR LOGIN] 483921
+========== AUTHOR LOGIN VERIFICATION ==========
+Verification Code: 483921
 ```
 
-The user types that value back into the console. This keeps the verification workflow without requiring external services.
+Password input is masked in the terminal.
 
 ## Demo Author Credentials
 
@@ -161,15 +167,27 @@ ctest --test-dir build --output-on-failure
 2. Submit a FIRE or MEDICAL incident.
 3. Login as Author and explain the FIFO Queue.
 4. Process intake and show priority insertion into the Max Heap.
-5. Dispatch the highest-priority incident and explain Array -> Merge Sort -> Dijkstra.
-6. Block one road, show automatic rerouting, then use Stack undo.
-7. Run BFS and DFS from a selected location.
-8. Mark response complete.
-9. Login as the reporting User and answer `YES` to close the incident.
-10. Return to Author and show the Linked List history + AVL Tree archive.
-11. Repeat with `NO` to demonstrate escalation and re-queuing.
-12. Demonstrate direct/broadcast messaging and shelter/resource allocation.
+5. Open Incident Analysis and select the highest-priority processed incident from the Max Heap.
+6. Show compatible response locations, total/available/on-operation strength.
+7. Run BFS and DFS from the incident location.
+8. Run Dijkstra and explain the responder distance table and recommended shortest path.
+9. Manually assign a responder; for Police, assign an officer count.
+10. Show the reduced availability in Responders & Resources.
+11. Mark the response completed from Dispatch Center and show the resource strength restored.
+12. Login as the reporting User and answer `YES` to close the incident.
+13. Show the Linked List history + AVL Tree archive.
+14. Demonstrate road blocking/Stack undo, messaging, shelters and supplies.
 
 ## Academic Scope
 
 This is a deterministic academic simulator. It does not connect to real emergency services, GPS, maps, municipal systems, production identity providers, email gateways, or SMS gateways.
+
+## Manual Response Strength
+
+Incident Analysis uses professional response categories:
+- Police -> **Law Enforcement Response** (officers)
+- Fire -> **Fire & Rescue Response** (fire units)
+- Medical / Accident -> **Emergency Medical Response** (ambulance units)
+- Rescue / Flood / Structural -> **Search & Rescue Response** (rescue teams)
+
+The responder table tracks **Total**, **Available**, and **On Operation** strength. For example, assigning 10 officers from a station with 30 available immediately changes its state to 20 available / 10 on operation. Marking the response completed returns those 10 officers to the available pool.
