@@ -356,6 +356,9 @@ public:
     const std::string& incidentDataPath() const { return incidentDataPath_; }
     const std::string& userHistoryPath() const { return userHistoryPath_; }
 
+    // =========================================================================
+    // USER ACCOUNT LIFECYCLE
+    // =========================================================================
     int registerUser(const User& input) {
         if (input.name.empty() || input.username.empty() || input.email.empty()) return -1;
         if (users_.full() || usernameIndex_.get(input.username)) return -1;
@@ -448,6 +451,9 @@ public:
         return index >= 0 ? &users_[index] : nullptr;
     }
 
+    // =========================================================================
+    // LOCATION LOOKUP & INCIDENT INTAKE
+    // =========================================================================
     int findLocationBinary(const std::string& id) const {
         int left = 0, right = graph_.nodeCount() - 1;
         while (left <= right) {
@@ -752,6 +758,9 @@ public:
         return responder ? responderStrengthLabel(responder->type) : "UNITS";
     }
 
+    // =========================================================================
+    // RESPONSE ASSIGNMENT & DISPATCH LIFECYCLE
+    // =========================================================================
     bool assignResponse(const std::string& incidentId, const std::string& responderId,
                         int strength, std::string& out) {
         Incident* incident = findIncident(incidentId);
@@ -959,6 +968,9 @@ public:
         return true;
     }
 
+    // =========================================================================
+    // ROAD CONTROL & AUTOMATIC REROUTING
+    // =========================================================================
     bool blockRoad(const std::string& roadId, std::string& out) {
         const int edgeIndex = graph_.findEdgeIndex(roadId);
         if (edgeIndex < 0) {
@@ -1004,6 +1016,9 @@ public:
         return true;
     }
 
+    // =========================================================================
+    // SHELTER & SUPPLY ALLOCATION
+    // =========================================================================
     bool allocateShelter(const std::string& id, std::string& out) {
         Incident* incident = findIncident(id);
         if (!incident) { out = "Incident not found."; return false; }
@@ -1084,6 +1099,13 @@ public:
         return false;
     }
 
+    bool hasRetainedUserData(int userId) const {
+        if (userExists(userId) || hasUserHistory(userId)) return true;
+        for (std::size_t i = 0; i < incidents_.size(); ++i)
+            if (incidents_[i].reportedByUserId == userId) return true;
+        return false;
+    }
+
     void recordUserLogin(int userId) {
         appendUserActivity(userId, "USER", "LOGIN", "", "User logged in successfully.");
     }
@@ -1092,6 +1114,9 @@ public:
         appendUserActivity(userId, "USER", "LOGOUT", "", "User logged out.");
     }
 
+    // =========================================================================
+    // USER COMMUNICATION
+    // =========================================================================
     bool sendMessage(int recipientUserId, const std::string& text) {
         if (text.empty()) return false;
         if (recipientUserId != -1 && !userExists(recipientUserId)) return false;
@@ -1143,6 +1168,9 @@ public:
         return -1;
     }
 
+    // =========================================================================
+    // AUTHOR RESOURCE ADMINISTRATION
+    // =========================================================================
     bool updateResponderStatus(const std::string& id, ResponderAvailability status, std::string& out) {
         Responder* responder = responderById(id);
         if (!responder) { out = "Responder not found."; return false; }
@@ -1270,6 +1298,9 @@ public:
         if (!shown) std::cout << "No active incident is available.\n";
     }
 
+    // =========================================================================
+    // USER-FACING PERSISTENT HISTORY & REPORTING
+    // =========================================================================
     void showUserIncidents(int userId, bool closedOnly = false) const {
         int shown = 0;
         const std::string title = closedOnly ? "CLOSED INCIDENT HISTORY" : "MY EMERGENCY RECORDS";
@@ -1319,15 +1350,16 @@ public:
     }
 
     void showUserHistory(int userId) const {
-        const std::string divider(118, '-');
+        const std::string divider(123, '-');
         auto clipped = [](const std::string& value, std::size_t limit) {
             if (value.size() <= limit) return value;
             if (limit <= 3) return value.substr(0, limit);
             return value.substr(0, limit - 3) + "...";
         };
 
-        std::cout << "\n=============================== PERSISTENT USER ACTIVITY HISTORY ===============================\n";
+        std::cout << "\n================================ PERSISTENT USER ACTIVITY HISTORY ================================\n";
         std::cout << std::left
+                  << std::setw(5)  << "No."
                   << std::setw(21) << "Time"
                   << std::setw(10) << "Actor"
                   << std::setw(27) << "Action"
@@ -1340,13 +1372,14 @@ public:
             const UserActivityEntry& entry = userActivity_[i - 1];
             if (entry.userId != userId) continue;
 
+            ++shown;
             std::cout << std::left
+                      << std::setw(5)  << shown
                       << std::setw(21) << clipped(entry.timestamp, 19)
                       << std::setw(10) << clipped(entry.actor, 8)
                       << std::setw(27) << clipped(entry.action, 25)
                       << std::setw(13) << (entry.incidentId.empty() ? "-" : clipped(entry.incidentId, 11))
                       << clipped(entry.details, 46) << '\n';
-            ++shown;
         }
 
         std::cout << divider << '\n';
@@ -1354,6 +1387,7 @@ public:
             std::cout << "No persistent activity has been recorded for User ID " << userId << ".\n";
         else
             std::cout << "Total Activity Records: " << shown
+                      << " | Order: newest first"
                       << " | Stored in: " << userHistoryPath_ << '\n';
     }
 
@@ -1443,15 +1477,22 @@ public:
     }
 
     void showEmergencyContacts() const {
-        const std::string divider(98, '-');
-        std::cout << "\n============================= EMERGENCY CONTACT DIRECTORY =============================\n";
+        const std::string divider(116, '-');
+        auto clipped = [](const std::string& value, std::size_t limit) {
+            if (value.size() <= limit) return value;
+            if (limit <= 3) return value.substr(0, limit);
+            return value.substr(0, limit - 3) + "...";
+        };
+
+        std::cout << "\n================================ EMERGENCY CONTACT DIRECTORY ================================\n";
         std::cout << std::left
                   << std::setw(5)  << "No."
                   << std::setw(19) << "Response Unit"
                   << std::setw(17) << "Type"
-                  << std::setw(12) << "Location"
-                  << std::setw(35) << "Facility"
-                  << "Hotline\n";
+                  << std::setw(12) << "Current"
+                  << std::setw(34) << "Base Facility"
+                  << std::setw(10) << "Hotline"
+                  << "Status\n";
         std::cout << divider << '\n';
 
         for (std::size_t i = 0; i < responders_.size(); ++i) {
@@ -1462,16 +1503,18 @@ public:
 
             std::cout << std::left
                       << std::setw(5)  << (i + 1)
-                      << std::setw(19) << r.id
-                      << std::setw(17) << readableType
+                      << std::setw(19) << clipped(r.id, 17)
+                      << std::setw(17) << clipped(readableType, 15)
                       << std::setw(12) << graph_.node(r.currentLocation).id
-                      << std::setw(35) << r.baseFacility
-                      << r.contactNumber << '\n';
+                      << std::setw(34) << clipped(r.baseFacility, 32)
+                      << std::setw(10) << r.contactNumber
+                      << responderOperationalStatus(r) << '\n';
         }
 
         std::cout << divider << '\n'
-                  << "Total Emergency Contacts: " << responders_.size()
-                  << " | Hotline format: 3-digit simulation numbers\n";
+                  << "Total Contacts: " << responders_.size()
+                  << " | Hotline: 3-digit simulation number"
+                  << " | Current = responder's live location\n";
     }
 
     void showActiveDispatches() const {
