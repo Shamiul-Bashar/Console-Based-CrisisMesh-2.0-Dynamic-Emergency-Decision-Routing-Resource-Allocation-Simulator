@@ -10,3 +10,4 @@ cmake-build-*/
 # Runtime persistent user data
 data/users.txt
 data/users.txt.tmp
+data/users.txt.bak
