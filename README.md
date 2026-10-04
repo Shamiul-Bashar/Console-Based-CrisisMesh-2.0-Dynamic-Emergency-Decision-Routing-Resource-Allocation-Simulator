@@ -46,6 +46,8 @@ The current implementation includes:
 - user YES/NO confirmation and escalation;
 - Linked List history + AVL archive;
 - direct/broadcast messaging;
+- persistent registered-user accounts in a local text file;
+- safe User Portal account deletion;
 - masked password input and console verification codes;
 - permanent Linux + Windows build/test CI.
 
@@ -74,7 +76,8 @@ The current implementation includes:
 | Closed history | Manual **Linked List** |
 | Closed archive | Manual **AVL Tree** |
 | Authentication | Password + random 6-digit console verification |
-| Runtime storage | In-memory simulation |
+| Account storage | Persistent local text file: `data/users.txt` |
+| Operational runtime | Incidents/messages/road/resource state remain in-memory |
 | Build validation | GitHub Actions on **Linux + Windows** |
 
 ---
@@ -756,6 +759,65 @@ Password: Crisis@2026
 
 ---
 
+# Persistent User Accounts
+
+Registered User accounts are persisted to a local text file:
+
+~~~text
+data/users.txt
+~~~
+
+The file is created automatically on the first successful registration. It stores the next User ID and the currently registered accounts so a User can close the program, reopen it, and log in again with the same account.
+
+~~~mermaid
+flowchart LR
+    START["Program Start"]
+    LOAD["Load data/users.txt"]
+    INDEX["Rebuild username Hash Table"]
+    LOGIN["User Login"]
+
+    REGISTER["Register User"]
+    RESET["Reset Password"]
+    DELETE["Delete Account"]
+    SAVE["Rewrite data/users.txt"]
+
+    START --> LOAD --> INDEX --> LOGIN
+    REGISTER --> SAVE
+    RESET --> SAVE
+    DELETE --> SAVE
+~~~
+
+### Persistence rules
+
+- Registration is saved immediately.
+- Password reset is saved immediately.
+- Account deletion removes the User from persistent storage.
+- User IDs are monotonic; a deleted ID is **not reused**.
+- Account deletion requires password confirmation.
+- An account with an active emergency cannot be deleted, because the reporting User is still required for the resolution workflow.
+- The runtime file and its temporary write file are excluded from Git through `.gitignore`.
+
+> The text-file persistence layer is designed for this academic console project. It is not a production identity/database system, and the local account file should be treated as private data.
+
+---
+
+# Professional Emergency List
+
+The User Portal presents reported emergencies in a structured table:
+
+~~~text
+Incident    Type        Location    Priority   Level        Status                     Responder
+---------------------------------------------------------------------------------------------------------
+INC-201     POLICE      LOC-014     115        HIGH         PRIORITIZED                -
+INC-202     FIRE        LOC-018     128        CRITICAL     EN_ROUTE                   FIRE-UNIT-03
+---------------------------------------------------------------------------------------------------------
+Total Records: 2
+~~~
+
+The same table style is reused for Closed History, with clear priority level, lifecycle status, and assigned responder information.
+
+---
+
 # Responders, Shelters & Supplies
 
 ## Responder state
@@ -938,6 +1000,9 @@ The project intentionally emphasizes:
 Implemented:
 
 - ✅ User registration/login/password reset
+- ✅ Persistent User accounts in `data/users.txt`
+- ✅ User account deletion with active-emergency protection
+- ✅ Professional User emergency-list table
 - ✅ Masked password input
 - ✅ Console verification codes
 - ✅ Emergency reporting
@@ -972,7 +1037,8 @@ Implemented:
 
 The console edition intentionally does **not** include:
 
-- persistent database/file storage;
+- persistent incident/dispatch/message/road/resource databases;
+- production-grade database-backed account storage;
 - GPS or real map APIs;
 - real police/fire/hospital integrations;
 - real emergency phone routing;
@@ -982,7 +1048,7 @@ The console edition intentionally does **not** include:
 - global multi-vehicle optimization;
 - automatic multi-station deployment to one incident.
 
-All runtime data is in memory. Restarting the executable resets users, incidents, messages, road state, deployments, and resource changes.
+Registered User accounts persist in `data/users.txt`. Operational simulation state—incidents, messages, road changes, deployments, shelter allocations, and resource changes—remains in memory and resets when the executable restarts.
 
 These boundaries keep the project focused on **Data Structures, Algorithms, state modeling, and emergency decision logic**.
 
@@ -992,7 +1058,7 @@ These boundaries keep the project focused on **Data Structures, Algorithms, stat
 
 Future versions could add:
 
-- file/database persistence;
+- persistent incident/history/message storage in a database;
 - multi-responder deployment for one incident;
 - fastest / safest / balanced route modes;
 - richer road-event simulation;
