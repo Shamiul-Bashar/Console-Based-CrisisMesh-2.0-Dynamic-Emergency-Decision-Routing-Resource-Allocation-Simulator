@@ -5,6 +5,7 @@
 
 namespace crisismesh {
 
+// DSA: Manual fixed-capacity Array using raw C++ array storage.
 template <typename T, std::size_t Capacity>
 class StaticArray {
 private:
@@ -43,6 +44,7 @@ public:
     void clear() { size_ = 0; }
 };
 
+// DSA: Manual Dynamic Array using raw pointers and automatic capacity growth.
 template <typename T>
 class DynamicArray {
 private:
@@ -50,6 +52,7 @@ private:
     std::size_t size_{0};
     std::size_t capacity_{0};
 
+    // DSA operation: resize the Dynamic Array by doubling its capacity.
     void grow() {
         const std::size_t newCapacity = capacity_ == 0 ? 4 : capacity_ * 2;
         T* next = new T[newCapacity];
