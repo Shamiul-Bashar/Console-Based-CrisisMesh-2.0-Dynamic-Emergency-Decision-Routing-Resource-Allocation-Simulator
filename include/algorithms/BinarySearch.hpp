@@ -5,6 +5,7 @@
 
 namespace crisismesh {
 
+// DSA Algorithm: Binary Search on sorted IDs.
 class BinarySearch {
 public:
     template <typename T, std::size_t Capacity>
