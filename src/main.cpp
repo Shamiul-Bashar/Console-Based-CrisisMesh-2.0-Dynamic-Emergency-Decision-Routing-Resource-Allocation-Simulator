@@ -259,14 +259,17 @@ void userPortal(CrisisMeshSystem& system, int userId) {
                   << "2. My Incidents\n"
                   << "3. Confirm Problem Solved / Still Need Help\n"
                   << "4. Messages\n"
-                  << "5. Closed History\n"
+                  << "5. My History & Activity Log\n"
                   << "6. My Profile\n"
                   << "7. City Graph & Locations\n"
                   << "8. Emergency Contacts\n"
                   << "9. Delete Account\n"
                   << "0. Logout\n";
         const int choice = readInt("Select: ", 0, 9);
-        if (choice == 0) return;
+        if (choice == 0) {
+            system.recordUserLogout(userId);
+            return;
+        }
 
         if (choice == 1) {
             reportIncident(system, userId);
@@ -293,8 +296,10 @@ void userPortal(CrisisMeshSystem& system, int userId) {
             system.showMessagesForUser(userId);
             waitForBack();
         } else if (choice == 5) {
-            std::cout << "\n========== CLOSED HISTORY ==========\n";
+            // Persistent history combines closed incident snapshots with the
+            // chronological User/System/Author activity audit.
             system.showUserIncidents(userId, true);
+            system.showUserHistory(userId);
             waitForBack();
         } else if (choice == 6) {
             std::cout << "\n========== MY PROFILE ==========\n";
@@ -316,7 +321,8 @@ void userPortal(CrisisMeshSystem& system, int userId) {
             waitForBack();
         } else if (choice == 9) {
             std::cout << "\n================ DELETE ACCOUNT ================\n"
-                      << "This action permanently removes your saved account data.\n"
+                      << "This action permanently removes your login/account credentials.\n"
+                      << "Closed incident and audit history is retained for system integrity.\n"
                       << "An account with an active emergency cannot be deleted.\n\n"
                       << "1. Continue\n"
                       << "0. Cancel\n";
@@ -355,8 +361,12 @@ void userEntry(CrisisMeshSystem& system) {
             const std::string username = readLine("Username: ");
             const std::string password = readPassword("Password: ");
             const int userId = system.authenticateUser(username, password);
-            if (userId < 0) std::cout << "Invalid username or password.\n";
-            else userPortal(system, userId);
+            if (userId < 0) {
+                std::cout << "Invalid username or password.\n";
+            } else {
+                system.recordUserLogin(userId);
+                userPortal(system, userId);
+            }
         }
     }
 }
@@ -422,7 +432,7 @@ void dispatchCenter(CrisisMeshSystem& system) {
         if (choice == 2) system.markResponseCompleted(id, message);
         else system.recallResponse(id, message);
         std::cout << "\n" << message << '\n';
-        waitForBack();
+        readInt("\nPress 0 to return to Dispatch Center: ", 0, 0);
     }
 }
 
@@ -636,9 +646,25 @@ void userDirectoryCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ USER DIRECTORY ================\n";
         system.listUsers();
-        std::cout << "\n1. Refresh User List\n0. Back\n";
-        const int choice = readInt("Select: ", 0, 1);
+        std::cout << "\n1. Refresh User List\n"
+                  << "2. View User Persistent History\n"
+                  << "0. Back\n";
+
+        const int choice = readInt("Select: ", 0, 2);
         if (choice == 0) return;
+        if (choice == 1) continue;
+
+        const int userId = readInt("User ID: ", 1, 1000000);
+        if (!system.userExists(userId) && !system.hasUserHistory(userId)) {
+            std::cout << "\nNo registered account or retained history exists for that User ID.\n";
+            waitForBack();
+            continue;
+        }
+
+        // History remains auditable even after an account has been deleted.
+        system.showUserIncidents(userId, true);
+        system.showUserHistory(userId);
+        waitForBack();
     }
 }
 
