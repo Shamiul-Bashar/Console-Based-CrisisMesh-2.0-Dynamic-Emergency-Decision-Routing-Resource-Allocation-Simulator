@@ -190,14 +190,18 @@ public:
     }
 
     bool processNext(std::string& out) {
-        if (intakeQueue_.empty()) { out = "FIFO intake queue is empty."; return false; }
+        if (intakeQueue_.empty()) {
+            out = "No pending incident is waiting in the FIFO queue.";
+            return false;
+        }
         const int index = intakeQueue_.dequeue();
         Incident& incident = incidents_[index];
         incident.status = IncidentStatus::Triaged;
         incident.priorityScore = calculatePriority(incident.severity, incident.urgency, incident.victimCount, incident.type);
         incident.status = IncidentStatus::Prioritized;
         priorityHeap_.push({index, incident.priorityScore, incident.sequence});
-        out = incident.id + " moved FIFO Queue -> Triage -> Max Heap; priority=" + std::to_string(incident.priorityScore);
+        out = "Incident " + incident.id + " processed successfully. Priority: " +
+              std::to_string(incident.priorityScore) + " (moved to Max Heap).";
         return true;
     }
 
@@ -278,7 +282,15 @@ public:
 
     bool blockRoad(const std::string& roadId, std::string& out) {
         const int edgeIndex = graph_.findEdgeIndex(roadId);
-        if (edgeIndex < 0 || !graph_.blockEdge(edgeIndex)) { out = "Road not found or already blocked."; return false; }
+        if (edgeIndex < 0) {
+            out = "Road not found.";
+            return false;
+        }
+        if (graph_.edge(edgeIndex).blocked) {
+            out = roadId + " is already blocked.";
+            return false;
+        }
+        graph_.blockEdge(edgeIndex);
         roadUndoStack_.push(edgeIndex);
         int rerouted = 0, unreachable = 0;
         for (std::size_t i = 0; i < incidents_.size(); ++i) {
@@ -288,19 +300,26 @@ public:
                 if (reroute(incident)) ++rerouted; else ++unreachable;
             }
         }
-        out = roadId + " blocked; stack depth=" + std::to_string(roadUndoStack_.size()) +
-              ", rerouted=" + std::to_string(rerouted) + ", unreachable=" + std::to_string(unreachable);
+        out = "Road " + roadId + " blocked successfully.\n"
+              "Affected reroutes: " + std::to_string(rerouted) +
+              " | Unreachable incidents: " + std::to_string(unreachable) +
+              " | Block stack depth: " + std::to_string(roadUndoStack_.size());
         return true;
     }
 
     bool undoRoadBlock(std::string& out) {
-        if (roadUndoStack_.empty()) { out = "Road undo Stack is empty."; return false; }
+        if (roadUndoStack_.empty()) {
+            out = "No blocked road is available to undo.";
+            return false;
+        }
         const int edgeIndex = roadUndoStack_.pop();
         graph_.openEdge(edgeIndex);
         int recovered = 0;
         for (std::size_t i = 0; i < incidents_.size(); ++i)
             if (incidents_[i].status == IncidentStatus::Unreachable && !incidents_[i].assignedResponderId.empty() && reroute(incidents_[i])) ++recovered;
-        out = graph_.edge(edgeIndex).id + " reopened using LIFO Stack undo; recovered=" + std::to_string(recovered);
+        out = "Road " + graph_.edge(edgeIndex).id + " unblocked successfully.\n"
+              "Recovered routes: " + std::to_string(recovered) +
+              " | Remaining block stack depth: " + std::to_string(roadUndoStack_.size());
         return true;
     }
 
@@ -323,17 +342,26 @@ public:
 
     bool allocateSupply(const std::string& id, const std::string& type, int quantity, std::string& out) {
         Incident* incident = findIncident(id);
-        if (!incident || quantity <= 0) { out = "Invalid incident/quantity."; return false; }
+        if (!incident) { out = "Incident not found."; return false; }
+        if (quantity <= 0) { out = "Quantity must be greater than zero."; return false; }
         for (std::size_t i = 0; i < resources_.size(); ++i) {
-            if (resources_[i].type == type && resources_[i].quantity >= quantity) {
+            if (resources_[i].type == type) {
+                if (resources_[i].quantity < quantity) {
+                    out = "Insufficient stock. Available quantity: " + std::to_string(resources_[i].quantity);
+                    return false;
+                }
                 resources_[i].quantity -= quantity;
                 incident->allocatedResourceType = type;
                 incident->allocatedResourceQuantity += quantity;
-                out = "Allocated " + std::to_string(quantity) + " x " + type + " to " + id;
+                out = "Supply allocated successfully.\n"
+                      "Incident: " + id + " | Resource: " + type +
+                      " | Allocated: " + std::to_string(quantity) +
+                      " | Remaining: " + std::to_string(resources_[i].quantity);
                 return true;
             }
         }
-        out = "Resource unavailable or insufficient."; return false;
+        out = "Resource type not found.";
+        return false;
     }
 
     void sendMessage(int recipientUserId, const std::string& text) {
@@ -358,16 +386,166 @@ public:
         if (users_.empty()) std::cout << "No registered users.\n";
     }
 
+    std::size_t pendingIntakeCount() const { return intakeQueue_.size(); }
+
+    std::size_t blockedRoadCount() const {
+        std::size_t count = 0;
+        for (int i = 0; i < graph_.edgeCount(); ++i) if (graph_.edge(i).blocked) ++count;
+        return count;
+    }
+
+    bool hasIncidents() const { return !incidents_.empty(); }
+
+    int supplyQuantity(const std::string& type) const {
+        for (std::size_t i = 0; i < resources_.size(); ++i)
+            if (resources_[i].type == type) return resources_[i].quantity;
+        return -1;
+    }
+
+    bool updateResponderStatus(const std::string& id, ResponderAvailability status, std::string& out) {
+        Responder* responder = responderById(id);
+        if (!responder) { out = "Responder not found."; return false; }
+        if (!responder->assignedIncidentId.empty()) {
+            out = "Responder is assigned to " + responder->assignedIncidentId +
+                  ". Complete the incident before changing status.";
+            return false;
+        }
+        if (status == ResponderAvailability::Assigned) {
+            out = "ASSIGNED status is controlled automatically by dispatch.";
+            return false;
+        }
+        responder->availability = status;
+        out = "Responder status updated successfully.";
+        return true;
+    }
+
+    bool updateResponderLocation(const std::string& id, const std::string& locationId, std::string& out) {
+        Responder* responder = responderById(id);
+        if (!responder) { out = "Responder not found."; return false; }
+        if (!responder->assignedIncidentId.empty()) {
+            out = "Responder location cannot be edited while assigned to an active incident.";
+            return false;
+        }
+        const int location = findLocationBinary(locationId);
+        if (location < 0) { out = "Location not found."; return false; }
+        responder->currentLocation = location;
+        out = "Responder location updated successfully.";
+        return true;
+    }
+
+    bool updateShelterCapacity(const std::string& id, int capacity, std::string& out) {
+        for (std::size_t i = 0; i < shelters_.size(); ++i) {
+            if (shelters_[i].id != id) continue;
+            if (capacity < shelters_[i].occupancy) {
+                out = "Capacity cannot be lower than current occupancy.";
+                return false;
+            }
+            shelters_[i].capacity = capacity;
+            out = "Shelter capacity updated successfully.";
+            return true;
+        }
+        out = "Shelter not found.";
+        return false;
+    }
+
+    bool updateShelterOccupancy(const std::string& id, int occupancy, std::string& out) {
+        for (std::size_t i = 0; i < shelters_.size(); ++i) {
+            if (shelters_[i].id != id) continue;
+            if (occupancy < 0 || occupancy > shelters_[i].capacity) {
+                out = "Occupancy must be between 0 and shelter capacity.";
+                return false;
+            }
+            shelters_[i].occupancy = occupancy;
+            out = "Shelter occupancy updated successfully.";
+            return true;
+        }
+        out = "Shelter not found.";
+        return false;
+    }
+
+    bool updateShelterOperational(const std::string& id, bool operational, std::string& out) {
+        for (std::size_t i = 0; i < shelters_.size(); ++i) {
+            if (shelters_[i].id != id) continue;
+            shelters_[i].operational = operational;
+            out = "Shelter status updated successfully.";
+            return true;
+        }
+        out = "Shelter not found.";
+        return false;
+    }
+
+    bool setSupplyQuantity(const std::string& type, int quantity, std::string& out) {
+        if (quantity < 0) { out = "Quantity cannot be negative."; return false; }
+        for (std::size_t i = 0; i < resources_.size(); ++i) {
+            if (resources_[i].type != type) continue;
+            resources_[i].quantity = quantity;
+            out = "Supply quantity updated successfully.";
+            return true;
+        }
+        out = "Resource type not found.";
+        return false;
+    }
+
+    bool adjustSupply(const std::string& type, int delta, std::string& out) {
+        for (std::size_t i = 0; i < resources_.size(); ++i) {
+            if (resources_[i].type != type) continue;
+            if (resources_[i].quantity + delta < 0) {
+                out = "Insufficient stock for this update.";
+                return false;
+            }
+            resources_[i].quantity += delta;
+            out = "Supply stock updated successfully. Current quantity: " +
+                  std::to_string(resources_[i].quantity);
+            return true;
+        }
+        out = "Resource type not found.";
+        return false;
+    }
+
+    bool updateSupplySource(const std::string& type, const std::string& source, std::string& out) {
+        if (source.empty()) { out = "Location cannot be empty."; return false; }
+        for (std::size_t i = 0; i < resources_.size(); ++i) {
+            if (resources_[i].type != type) continue;
+            resources_[i].source = source;
+            out = "Supply location updated successfully.";
+            return true;
+        }
+        out = "Resource type not found.";
+        return false;
+    }
+
+    void showOperationalIncidents() const {
+        std::cout << "\nAVAILABLE INCIDENTS\n";
+        std::cout << std::left << std::setw(12) << "Incident" << std::setw(13) << "Type"
+                  << std::setw(12) << "Location" << std::setw(26) << "Status" << '\n';
+        std::cout << std::string(63, '-') << '\n';
+        int shown = 0;
+        for (std::size_t i = 0; i < incidents_.size(); ++i) {
+            const Incident& in = incidents_[i];
+            if (in.status == IncidentStatus::Closed || in.status == IncidentStatus::Cancelled) continue;
+            std::cout << std::left << std::setw(12) << in.id << std::setw(13) << toString(in.type)
+                      << std::setw(12) << in.locationId << std::setw(26) << toString(in.status) << '\n';
+            ++shown;
+        }
+        if (!shown) std::cout << "No active incident is available.\n";
+    }
+
     void showUserIncidents(int userId, bool closedOnly = false) const {
         int shown = 0;
         std::cout << "\nYOUR INCIDENTS\n";
+        std::cout << std::left << std::setw(12) << "Incident" << std::setw(13) << "Type"
+                  << std::setw(12) << "Location" << std::setw(10) << "Priority"
+                  << std::setw(26) << "Status" << std::setw(16) << "Responder" << '\n';
+        std::cout << std::string(89, '-') << '\n';
         for (std::size_t i = 0; i < incidents_.size(); ++i) {
             const Incident& in = incidents_[i];
             if (in.reportedByUserId != userId) continue;
             const bool closed = in.status == IncidentStatus::Closed || in.status == IncidentStatus::Resolved;
             if (closedOnly && !closed) continue;
-            std::cout << in.id << " | " << toString(in.type) << " | " << in.locationId << " | P=" << in.priorityScore
-                      << " | " << toString(in.status) << " | responder=" << (in.assignedResponderId.empty()?"-":in.assignedResponderId) << '\n';
+            std::cout << std::left << std::setw(12) << in.id << std::setw(13) << toString(in.type)
+                      << std::setw(12) << in.locationId << std::setw(10) << in.priorityScore
+                      << std::setw(26) << toString(in.status)
+                      << std::setw(16) << (in.assignedResponderId.empty() ? "-" : in.assignedResponderId) << '\n';
             ++shown;
         }
         if (!shown) std::cout << "No matching incidents.\n";
@@ -375,62 +553,148 @@ public:
 
     void showAllIncidents() const {
         std::cout << "\nALL INCIDENTS\n";
+        std::cout << std::left << std::setw(12) << "Incident" << std::setw(13) << "Type"
+                  << std::setw(12) << "Location" << std::setw(10) << "Priority"
+                  << std::setw(26) << "Status" << std::setw(16) << "Responder" << '\n';
+        std::cout << std::string(89, '-') << '\n';
         for (std::size_t i = 0; i < incidents_.size(); ++i) {
             const Incident& in = incidents_[i];
-            std::cout << std::setw(8) << in.id << " | " << std::setw(10) << toString(in.type) << " | " << in.locationId
-                      << " | P=" << std::setw(3) << in.priorityScore << " | " << std::setw(28) << toString(in.status)
-                      << " | " << (in.assignedResponderId.empty()?"-":in.assignedResponderId) << '\n';
+            std::cout << std::left << std::setw(12) << in.id << std::setw(13) << toString(in.type)
+                      << std::setw(12) << in.locationId << std::setw(10) << in.priorityScore
+                      << std::setw(26) << toString(in.status)
+                      << std::setw(16) << (in.assignedResponderId.empty() ? "-" : in.assignedResponderId) << '\n';
         }
         if (incidents_.empty()) std::cout << "No incident occurred.\n";
     }
 
     void showIncident(const std::string& id) const {
         const Incident* in = findIncident(id);
-        if (!in) { std::cout << "Incident not found.\n"; return; }
-        std::cout << "\n" << in->id << " | " << toString(in->type) << " | " << in->locationId
-                  << "\nstatus=" << toString(in->status) << " priority=" << in->priorityScore
-                  << " responder=" << (in->assignedResponderId.empty()?"-":in->assignedResponderId)
-                  << "\nroute cost/distance/time=" << in->routeCost << "/" << in->routeDistance << "/" << in->routeTravelTime << " min"
-                  << "\ndescription=" << in->description << '\n';
+        if (!in) { std::cout << "\nIncident not found.\n"; return; }
+        const std::string locationName = graph_.node(in->locationIndex).name;
+        std::cout << "\n================ INCIDENT DETAILS ================\n"
+                  << std::left << std::setw(18) << "Incident ID" << ": " << in->id << '\n'
+                  << std::setw(18) << "Type" << ": " << toString(in->type) << '\n'
+                  << std::setw(18) << "Location" << ": " << in->locationId << " - " << locationName << '\n'
+                  << std::setw(18) << "Status" << ": " << toString(in->status) << '\n'
+                  << std::setw(18) << "Priority" << ": " << in->priorityScore << '\n'
+                  << std::setw(18) << "Responder" << ": " << (in->assignedResponderId.empty() ? "-" : in->assignedResponderId) << '\n'
+                  << std::setw(18) << "Route Cost" << ": " << std::fixed << std::setprecision(2) << in->routeCost << '\n'
+                  << std::setw(18) << "Distance" << ": " << std::setprecision(1) << in->routeDistance << " km\n"
+                  << std::setw(18) << "Travel Time" << ": " << in->routeTravelTime << " min\n"
+                  << std::setw(18) << "Description" << ": " << in->description << '\n'
+                  << "==================================================\n";
+        std::cout.unsetf(std::ios::floatfield);
     }
 
     void showRespondersResources() const {
-        std::cout << "\nRESPONDERS\n";
+        std::cout << "\n================ RESPONDERS =================\n";
+        std::cout << std::left << std::setw(18) << "ID" << std::setw(16) << "Type"
+                  << std::setw(13) << "Status" << std::setw(12) << "Location" << '\n';
+        std::cout << std::string(59, '-') << '\n';
         for (std::size_t i = 0; i < responders_.size(); ++i)
-            std::cout << responders_[i].id << " | " << responders_[i].type << " | " << toString(responders_[i].availability)
-                      << " | " << graph_.node(responders_[i].currentLocation).id << '\n';
-        std::cout << "SHELTERS\n";
+            std::cout << std::left << std::setw(18) << responders_[i].id << std::setw(16) << responders_[i].type
+                      << std::setw(13) << toString(responders_[i].availability)
+                      << std::setw(12) << graph_.node(responders_[i].currentLocation).id << '\n';
+
+        std::cout << "\n================= SHELTERS ==================\n";
+        std::cout << std::left << std::setw(14) << "ID" << std::setw(11) << "Capacity"
+                  << std::setw(12) << "Occupancy" << std::setw(11) << "Available" << std::setw(12) << "Status" << '\n';
+        std::cout << std::string(60, '-') << '\n';
         for (std::size_t i = 0; i < shelters_.size(); ++i)
-            std::cout << shelters_[i].id << " capacity=" << shelters_[i].capacity << " occupancy=" << shelters_[i].occupancy << " available=" << shelters_[i].available() << '\n';
-        std::cout << "SUPPLIES\n";
+            std::cout << std::left << std::setw(14) << shelters_[i].id << std::setw(11) << shelters_[i].capacity
+                      << std::setw(12) << shelters_[i].occupancy << std::setw(11) << shelters_[i].available()
+                      << std::setw(12) << (shelters_[i].operational ? "ACTIVE" : "CLOSED") << '\n';
+
+        std::cout << "\n================== SUPPLIES =================\n";
+        std::cout << std::left << std::setw(18) << "Resource" << std::setw(12) << "Quantity" << "Location\n";
+        std::cout << std::string(58, '-') << '\n';
         for (std::size_t i = 0; i < resources_.size(); ++i)
-            std::cout << resources_[i].type << " qty=" << resources_[i].quantity << " | " << resources_[i].source << '\n';
+            std::cout << std::left << std::setw(18) << resources_[i].type << std::setw(12) << resources_[i].quantity
+                      << resources_[i].source << '\n';
     }
 
     void showRoads() const {
+        std::cout << "\n========================== ROAD NETWORK ==========================\n";
+        std::cout << std::left << std::setw(9) << "Road ID" << std::setw(11) << "From"
+                  << std::setw(11) << "To" << std::setw(11) << "Distance" << std::setw(9) << "Time"
+                  << std::setw(7) << "Risk" << std::setw(10) << "Traffic" << "Status\n";
+        std::cout << std::string(78, '-') << '\n';
         for (int i = 0; i < graph_.edgeCount(); ++i) {
             const auto& e = graph_.edge(i);
-            std::cout << e.id << " | " << graph_.node(e.from).id << " <-> " << graph_.node(e.to).id
-                      << " | dist=" << e.distance << " time=" << e.travelTime << " risk=" << e.risk
-                      << " traffic=" << e.congestion << " | " << (e.blocked?"BLOCKED":"OPEN") << '\n';
+            std::cout << std::left << std::setw(9) << e.id << std::setw(11) << graph_.node(e.from).id
+                      << std::setw(11) << graph_.node(e.to).id
+                      << std::setw(11) << (std::to_string(e.distance).substr(0,3) + " km")
+                      << std::setw(9) << (std::to_string(e.travelTime) + " min")
+                      << std::setw(7) << e.risk << std::setw(10) << e.congestion
+                      << (e.blocked ? "BLOCKED" : "OPEN") << '\n';
         }
+        std::cout << std::string(78, '-') << '\n'
+                  << "Total Roads: " << graph_.edgeCount() << " | Blocked: " << blockedRoadCount() << '\n';
+    }
+
+    void showBlockedRoads() const {
+        std::cout << "\n================ BLOCKED ROADS ================\n";
+        std::cout << std::left << std::setw(9) << "Road ID" << std::setw(11) << "From"
+                  << std::setw(11) << "To" << std::setw(11) << "Distance" << "Status\n";
+        std::cout << std::string(55, '-') << '\n';
+        int shown = 0;
+        for (int i = 0; i < graph_.edgeCount(); ++i) {
+            const auto& e = graph_.edge(i);
+            if (!e.blocked) continue;
+            std::cout << std::left << std::setw(9) << e.id << std::setw(11) << graph_.node(e.from).id
+                      << std::setw(11) << graph_.node(e.to).id
+                      << std::setw(11) << (std::to_string(e.distance).substr(0,3) + " km") << "BLOCKED\n";
+            ++shown;
+        }
+        if (!shown) std::cout << "No roads are currently blocked.\n";
     }
 
     void runBfs(const std::string& startId) const {
-        const int start = findLocationBinary(startId); if (start < 0) { std::cout << "Invalid location.\n"; return; }
+        const int start = findLocationBinary(startId);
+        if (start < 0) { std::cout << "Invalid location.\n"; return; }
         DynamicArray<int> order = BFS::traverse(graph_, start);
-        std::cout << "BFS: "; for (std::size_t i=0;i<order.size();++i) { if(i) std::cout << " -> "; std::cout << graph_.node(order[i]).id; } std::cout << '\n';
+        std::cout << "\n================ BFS ANALYSIS ================\n"
+                  << "Start Location : " << graph_.node(start).id << " - " << graph_.node(start).name << "\n\n"
+                  << std::left << std::setw(8) << "Step" << std::setw(13) << "Location ID" << "Location Name\n"
+                  << std::string(52, '-') << '\n';
+        for (std::size_t i = 0; i < order.size(); ++i)
+            std::cout << std::left << std::setw(8) << (i + 1) << std::setw(13) << graph_.node(order[i]).id
+                      << graph_.node(order[i]).name << '\n';
+        std::cout << std::string(52, '-') << '\n' << "Total Visited Nodes: " << order.size() << '\n';
     }
+
     void runDfs(const std::string& startId) const {
-        const int start = findLocationBinary(startId); if (start < 0) { std::cout << "Invalid location.\n"; return; }
+        const int start = findLocationBinary(startId);
+        if (start < 0) { std::cout << "Invalid location.\n"; return; }
         DynamicArray<int> order = DFS::traverse(graph_, start);
-        std::cout << "DFS: "; for (std::size_t i=0;i<order.size();++i) { if(i) std::cout << " -> "; std::cout << graph_.node(order[i]).id; } std::cout << '\n';
+        std::cout << "\n================ DFS ANALYSIS ================\n"
+                  << "Start Location : " << graph_.node(start).id << " - " << graph_.node(start).name << "\n\n"
+                  << std::left << std::setw(8) << "Step" << std::setw(13) << "Location ID" << "Location Name\n"
+                  << std::string(52, '-') << '\n';
+        for (std::size_t i = 0; i < order.size(); ++i)
+            std::cout << std::left << std::setw(8) << (i + 1) << std::setw(13) << graph_.node(order[i]).id
+                      << graph_.node(order[i]).name << '\n';
+        std::cout << std::string(52, '-') << '\n' << "Total Visited Nodes: " << order.size() << '\n';
     }
+
     void runDijkstra(const std::string& fromId, const std::string& toId) const {
-        RouteResult route = Dijkstra::shortestPath(graph_, findLocationBinary(fromId), findLocationBinary(toId));
+        const int from = findLocationBinary(fromId);
+        const int to = findLocationBinary(toId);
+        if (from < 0 || to < 0) { std::cout << "Invalid source or destination location.\n"; return; }
+        RouteResult route = Dijkstra::shortestPath(graph_, from, to);
         if (!route.reachable) { std::cout << "No reachable path.\n"; return; }
-        std::cout << "cost=" << route.cost << " distance=" << route.distance << " time=" << route.travelTime << " min\nPath: ";
-        for (std::size_t i=0;i<route.nodes.size();++i) { if(i) std::cout << " -> "; std::cout << graph_.node(route.nodes[i]).id; } std::cout << '\n';
+        std::cout << "\n================ SHORTEST ROUTE ================\n"
+                  << std::left << std::setw(16) << "From" << ": " << graph_.node(from).id << " - " << graph_.node(from).name << '\n'
+                  << std::setw(16) << "To" << ": " << graph_.node(to).id << " - " << graph_.node(to).name << '\n'
+                  << std::setw(16) << "Total Distance" << ": " << std::fixed << std::setprecision(1) << route.distance << " km\n"
+                  << std::setw(16) << "Travel Time" << ": " << route.travelTime << " min\n"
+                  << std::setw(16) << "Route Cost" << ": " << std::setprecision(2) << route.cost << "\n\nRoute:\n";
+        for (std::size_t i = 0; i < route.nodes.size(); ++i) {
+            if (i) std::cout << " -> ";
+            std::cout << graph_.node(route.nodes[i]).id;
+        }
+        std::cout << '\n';
+        std::cout.unsetf(std::ios::floatfield);
     }
 
     void showArchive() const {
