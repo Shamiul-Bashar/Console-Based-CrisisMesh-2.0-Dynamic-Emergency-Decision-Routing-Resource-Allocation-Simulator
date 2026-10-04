@@ -77,6 +77,7 @@ public:
         return "data/incidents.txt";
     }
 
+    // DSA: restore incident records into the manual StaticArray.
     template <std::size_t Capacity>
     static bool load(StaticArray<Incident, Capacity>& incidents,
                      int& nextIncidentNumber,
@@ -168,6 +169,7 @@ public:
                     valid = false;
                     break;
                 }
+                // DSA: rebuild persisted route nodes in the custom DynamicArray.
                 incident.routeNodes.pushBack(node);
             }
 
@@ -179,6 +181,7 @@ public:
                     valid = false;
                     break;
                 }
+                // DSA: rebuild persisted route edges in the custom DynamicArray.
                 incident.routeEdges.pushBack(edge);
             }
             if (!valid) continue;
@@ -289,6 +292,7 @@ public:
         return "data/user_history.txt";
     }
 
+    // DSA: restore chronological activity records into the custom DynamicArray.
     static bool load(DynamicArray<UserActivityEntry>& history,
                      long long& nextSequence,
                      const std::string& path = defaultPath()) {
