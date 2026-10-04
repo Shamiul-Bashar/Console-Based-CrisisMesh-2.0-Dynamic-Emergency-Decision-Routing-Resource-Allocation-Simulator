@@ -27,6 +27,7 @@ struct RouteResult {
     DynamicArray<int> edges;
 };
 
+// DSA Algorithm: Dijkstra shortest path using the manual Min Heap.
 class Dijkstra {
 private:
     static RouteResult compute(const Graph& graph, int source, int target, bool distanceOnly) {
@@ -50,6 +51,7 @@ private:
         best[source] = 0.0;
         heap.push({source, 0.0});
 
+        // DSA operation: extract the minimum frontier and relax open edges.
         while (!heap.empty()) {
             const DijkstraNode current = heap.pop();
             const int u = current.node;
@@ -75,6 +77,7 @@ private:
 
         if (best[target] != INF) {
             result.reachable = true;
+            // DSA: Dynamic Arrays store reconstructed route nodes and edges.
             DynamicArray<int> reverseNodes;
             DynamicArray<int> reverseEdges;
 
