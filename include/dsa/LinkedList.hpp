@@ -4,6 +4,7 @@
 
 namespace crisismesh {
 
+// DSA: Manual Singly Linked List with head and tail pointers.
 template <typename T>
 class LinkedList {
 private:
@@ -24,6 +25,7 @@ public:
 
     ~LinkedList() { clear(); }
 
+    // DSA operation: insert a node at the tail.
     void pushBack(const T& value) {
         Node* node = new Node(value);
         if (!head_) head_ = tail_ = node;
@@ -34,6 +36,7 @@ public:
         ++size_;
     }
 
+    // DSA operation: delete the head node.
     bool popFront(T& out) {
         if (!head_) return false;
         Node* old = head_;
@@ -45,6 +48,7 @@ public:
         return true;
     }
 
+    // DSA operation: sequential Linked List traversal.
     template <typename Func>
     void forEach(Func fn) const {
         Node* current = head_;
