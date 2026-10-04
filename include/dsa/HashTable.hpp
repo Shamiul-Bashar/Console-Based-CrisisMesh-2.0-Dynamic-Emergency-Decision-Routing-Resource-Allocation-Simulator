@@ -5,6 +5,7 @@
 
 namespace crisismesh {
 
+// DSA: Manual Hash Table using separate chaining for collisions.
 template <typename Value, std::size_t BucketCount = 101>
 class HashTable {
 private:
@@ -18,6 +19,7 @@ private:
     Node* buckets_[BucketCount]{};
     std::size_t size_{0};
 
+    // DSA operation: hash a string key to a bucket index.
     static std::size_t hashKey(const std::string& key) {
         unsigned long hash = 5381;
         for (char c : key) hash = ((hash << 5) + hash) + static_cast<unsigned char>(c);
@@ -30,6 +32,7 @@ public:
     HashTable& operator=(const HashTable&) = delete;
     ~HashTable() { clear(); }
 
+    // DSA operation: insert or update a key-value pair in the chain.
     void put(const std::string& key, const Value& value) {
         const std::size_t bucket = hashKey(key);
         Node* current = buckets_[bucket];
@@ -41,6 +44,7 @@ public:
         ++size_;
     }
 
+    // DSA operation: search a key inside its bucket chain.
     Value* get(const std::string& key) {
         Node* current = buckets_[hashKey(key)];
         while (current) {
