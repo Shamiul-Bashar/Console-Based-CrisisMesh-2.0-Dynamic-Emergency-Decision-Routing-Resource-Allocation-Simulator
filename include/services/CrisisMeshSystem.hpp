@@ -152,6 +152,7 @@ public:
     const Graph& graph() const { return graph_; }
 
     int registerUser(const User& input) {
+        if (input.name.empty() || input.username.empty() || input.email.empty()) return -1;
         if (users_.full() || usernameIndex_.get(input.username)) return -1;
         User user = input;
         user.id = static_cast<int>(users_.size()) + 1;
@@ -159,6 +160,10 @@ public:
         users_.pushBack(user);
         usernameIndex_.put(user.username, index);
         return user.id;
+    }
+
+    bool usernameExists(const std::string& username) const {
+        return usernameIndex_.get(username) != nullptr;
     }
 
     int authenticateUser(const std::string& username, const std::string& password) const {
@@ -266,27 +271,47 @@ public:
     }
 
     void showAnalysisReadyIncidents() const {
+        struct ReadyRow {
+            int incidentIndex{-1};
+            int priority{0};
+            long long sequence{0};
+        };
+
+        ReadyRow rows[MAX_INCIDENTS]{};
+        std::size_t count = 0;
+
+        for (std::size_t i = 0; i < incidents_.size(); ++i) {
+            if (incidents_[i].status != IncidentStatus::Prioritized) continue;
+            rows[count++] = {static_cast<int>(i), incidents_[i].priorityScore, incidents_[i].sequence};
+        }
+
+        MergeSort::sort(rows, count, [](const ReadyRow& left, const ReadyRow& right) {
+            if (left.priority != right.priority) return left.priority > right.priority;
+            return left.sequence < right.sequence;
+        });
+
         std::cout << "\n================ READY FOR INCIDENT ANALYSIS ================\n";
-        std::cout << std::left << std::setw(12) << "Incident"
+        std::cout << std::left << std::setw(7) << "Rank"
+                  << std::setw(12) << "Incident"
                   << std::setw(13) << "Type"
                   << std::setw(12) << "Location"
                   << std::setw(11) << "Priority"
+                  << std::setw(12) << "Level"
                   << "Required Response\n";
-        std::cout << std::string(76, '-') << '\n';
+        std::cout << std::string(95, '-') << '\n';
 
-        int shown = 0;
-        for (std::size_t i = 0; i < incidents_.size(); ++i) {
-            const Incident& incident = incidents_[i];
-            if (incident.status != IncidentStatus::Prioritized) continue;
-            std::cout << std::left << std::setw(12) << incident.id
+        for (std::size_t i = 0; i < count; ++i) {
+            const Incident& incident = incidents_[rows[i].incidentIndex];
+            std::cout << std::left << std::setw(7) << (i + 1)
+                      << std::setw(12) << incident.id
                       << std::setw(13) << toString(incident.type)
                       << std::setw(12) << incident.locationId
                       << std::setw(11) << incident.priorityScore
+                      << std::setw(12) << operationalPriorityName(incident.priorityScore)
                       << responseCategoryName(incident.type) << '\n';
-            ++shown;
         }
 
-        if (!shown)
+        if (!count)
             std::cout << "No processed incident is waiting for analysis. Process an incident in Incident Center first.\n";
     }
 
@@ -747,9 +772,19 @@ public:
     }
 
     void listUsers() const {
-        std::cout << "\nREGISTERED USERS\n";
+        std::cout << "\n================ REGISTERED USERS ================\n";
+        std::cout << std::left << std::setw(8) << "ID"
+                  << std::setw(24) << "Name"
+                  << std::setw(30) << "Email"
+                  << "Username\n";
+        std::cout << std::string(78, '-') << '\n';
+
         for (std::size_t i = 0; i < users_.size(); ++i)
-            std::cout << users_[i].id << " | " << users_[i].name << " | " << users_[i].email << " | " << users_[i].username << '\n';
+            std::cout << std::left << std::setw(8) << users_[i].id
+                      << std::setw(24) << users_[i].name
+                      << std::setw(30) << users_[i].email
+                      << users_[i].username << '\n';
+
         if (users_.empty()) std::cout << "No registered users.\n";
     }
 
