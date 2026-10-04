@@ -5,6 +5,7 @@
 
 namespace crisismesh {
 
+// DSA: Manual Circular Queue (FIFO) using dynamic array storage.
 template <typename T>
 class Queue {
 private:
@@ -14,6 +15,7 @@ private:
     std::size_t front_{0};
     std::size_t rear_{0};
 
+    // DSA operation: resize the circular Queue while preserving FIFO order.
     void grow() {
         const std::size_t newCapacity = capacity_ == 0 ? 4 : capacity_ * 2;
         T* next = new T[newCapacity];
@@ -31,6 +33,7 @@ public:
     Queue& operator=(const Queue&) = delete;
     ~Queue() { delete[] data_; }
 
+    // DSA operation: enqueue at the rear.
     void enqueue(const T& value) {
         if (size_ == capacity_) grow();
         data_[rear_] = value;
@@ -38,6 +41,7 @@ public:
         ++size_;
     }
 
+    // DSA operation: dequeue from the front.
     T dequeue() {
         if (size_ == 0) throw std::runtime_error("Queue underflow");
         T value = data_[front_];
