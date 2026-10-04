@@ -30,6 +30,24 @@ std::string readLine(const std::string& prompt) {
     return value;
 }
 
+void waitForBack() {
+    readInt("\nPress 0 to go back: ", 0, 0);
+}
+
+void showCityGraph(const CrisisMeshSystem& system) {
+    std::cout << "\n================ CITY GRAPH (20 NODES) ================\n"
+              << " LOC-001 ----- LOC-002 ----- LOC-003 ----- LOC-004 ----- LOC-005\n"
+              << "    |             |             |             |             |\n"
+              << " LOC-006 ----- LOC-007 ----- LOC-008 ----- LOC-009 ----- LOC-010\n"
+              << "    |             |             |             |             |\n"
+              << " LOC-011 ----- LOC-012 ----- LOC-013 ----- LOC-014 ----- LOC-015\n"
+              << "    |             |             |             |             |\n"
+              << " LOC-016 ----- LOC-017 ----- LOC-018 ----- LOC-019 ----- LOC-020\n"
+              << "=========================================================\n"
+              << "Nodes: " << system.graph().nodeCount() << " | Roads: " << system.graph().edgeCount() << "\n"
+              << "User and Author portals use the same location IDs and names.\n";
+}
+
 IncidentType chooseIncidentType() {
     std::cout << "\n1. Medical\n2. Fire\n3. Police\n4. Rescue\n5. Accident\n6. Flood\n7. Structural\n";
     switch (readInt("Type: ", 1, 7)) {
@@ -46,13 +64,13 @@ IncidentType chooseIncidentType() {
 bool simulatedOtpVerification(const std::string& purpose) {
     const int otp = AuthService::generateOtp();
     std::cout << "\n[SIMULATED OTP - " << purpose << "] " << otp << "\n";
-    std::cout << "(Academic console mode: OTP is generated randomly and displayed locally; no email/SMS is sent.)\n";
+    std::cout << "Academic console mode: OTP is displayed locally; no email/SMS is sent.\n";
     const int entered = readInt("Enter OTP: ", 100000, 999999);
     return entered == otp;
 }
 
 void registerUser(CrisisMeshSystem& system) {
-    std::cout << "\n========== USER REGISTRATION ==========" << '\n';
+    std::cout << "\n========== USER REGISTRATION ==========\n";
     User user;
     user.name = readLine("Full name: ");
     user.email = readLine("Email: ");
@@ -79,7 +97,7 @@ void registerUser(CrisisMeshSystem& system) {
 }
 
 void forgotPassword(CrisisMeshSystem& system) {
-    std::cout << "\n========== RESET PASSWORD ==========" << '\n';
+    std::cout << "\n========== RESET PASSWORD ==========\n";
     const std::string username = readLine("Username: ");
     if (!simulatedOtpVerification("PASSWORD RESET")) {
         std::cout << "OTP verification failed.\n";
@@ -94,7 +112,8 @@ void forgotPassword(CrisisMeshSystem& system) {
 }
 
 void reportIncident(CrisisMeshSystem& system, int userId) {
-    std::cout << "\n========== REPORT EMERGENCY ==========" << '\n';
+    std::cout << "\n========== REPORT EMERGENCY ==========\n";
+    showCityGraph(system);
     system.listLocations();
     const IncidentType type = chooseIncidentType();
     const std::string location = readLine("Location ID (example LOC-014): ");
@@ -104,22 +123,34 @@ void reportIncident(CrisisMeshSystem& system, int userId) {
     const std::string description = readLine("Short description: ");
     const std::string id = system.createIncident(userId, type, location, severity, urgency, victims, description);
     if (id.empty()) std::cout << "Could not create incident. Check location/inputs.\n";
-    else std::cout << "Emergency reported successfully as " << id << ". It is now in the manual FIFO intake Queue.\n";
+    else std::cout << "Emergency reported successfully as " << id << ". It is now in the FIFO intake Queue.\n";
 }
 
 void userPortal(CrisisMeshSystem& system, int userId) {
     while (true) {
         const User* user = system.getUser(userId);
-        std::cout << "\n============================================================\n"
-                  << " CRISISMESH 2.0 - USER PORTAL | " << (user ? user->name : "User") << "\n"
-                  << "============================================================\n"
-                  << "1. Report Emergency\n2. Track My Incidents\n3. Confirm Problem Solved / Still Need Help\n"
-                  << "4. Messages\n5. Closed History\n6. My Profile\n7. View City Locations\n0. Logout\n";
+        std::cout << "\n================ USER PORTAL ================\n"
+                  << "Logged in as: " << (user ? user->name : "User") << "\n"
+                  << "1. Report Emergency\n"
+                  << "2. My Incidents\n"
+                  << "3. Confirm Problem Solved / Still Need Help\n"
+                  << "4. Messages\n"
+                  << "5. Closed History\n"
+                  << "6. My Profile\n"
+                  << "7. City Graph & Locations\n"
+                  << "0. Logout\n";
         const int choice = readInt("Select: ", 0, 7);
         if (choice == 0) return;
-        if (choice == 1) reportIncident(system, userId);
-        else if (choice == 2) system.showUserIncidents(userId);
-        else if (choice == 3) {
+
+        if (choice == 1) {
+            reportIncident(system, userId);
+            waitForBack();
+        } else if (choice == 2) {
+            std::cout << "\n========== MY INCIDENTS ==========\n";
+            system.showUserIncidents(userId);
+            waitForBack();
+        } else if (choice == 3) {
+            std::cout << "\n========== RESOLUTION CONFIRMATION ==========\n";
             system.showUserIncidents(userId);
             const std::string id = readLine("Incident ID: ");
             std::cout << "1. YES - Problem solved\n2. NO - Still need help\n";
@@ -129,20 +160,34 @@ void userPortal(CrisisMeshSystem& system, int userId) {
             std::string message;
             system.confirmResolution(userId, id, solved, reason, message);
             std::cout << message << '\n';
+            waitForBack();
+        } else if (choice == 4) {
+            std::cout << "\n========== MESSAGES ==========\n";
+            system.showMessagesForUser(userId);
+            waitForBack();
+        } else if (choice == 5) {
+            std::cout << "\n========== CLOSED HISTORY ==========\n";
+            system.showUserIncidents(userId, true);
+            waitForBack();
+        } else if (choice == 6) {
+            std::cout << "\n========== MY PROFILE ==========\n";
+            if (user) {
+                std::cout << "ID: " << user->id << "\nName: " << user->name << "\nEmail: " << user->email
+                          << "\nPhone: " << user->phone << "\nUsername: " << user->username << "\n";
+            }
+            waitForBack();
+        } else if (choice == 7) {
+            std::cout << "\n========== CITY GRAPH & LOCATIONS ==========\n";
+            showCityGraph(system);
+            system.listLocations();
+            waitForBack();
         }
-        else if (choice == 4) system.showMessagesForUser(userId);
-        else if (choice == 5) system.showUserIncidents(userId, true);
-        else if (choice == 6) {
-            if (user) std::cout << "\nID: " << user->id << "\nName: " << user->name << "\nEmail: " << user->email
-                                << "\nPhone: " << user->phone << "\nUsername: " << user->username << "\n";
-        }
-        else if (choice == 7) system.listLocations();
     }
 }
 
 void userEntry(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== USER ACCESS ==========" << '\n'
+        std::cout << "\n========== USER ACCESS ==========\n"
                   << "1. Register\n2. Login\n3. Forgot Password\n0. Back\n";
         const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) return;
@@ -159,7 +204,7 @@ void userEntry(CrisisMeshSystem& system) {
 }
 
 bool authorLogin() {
-    std::cout << "\n========== AUTHOR LOGIN ==========" << '\n';
+    std::cout << "\n========== AUTHOR LOGIN ==========\n";
     const std::string username = readLine("Username: ");
     const std::string password = readLine("Password: ");
     if (username != "author" || password != "Crisis@2026") {
@@ -173,63 +218,221 @@ bool authorLogin() {
     return true;
 }
 
-void authorPortal(CrisisMeshSystem& system) {
+void incidentCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n================================================================\n"
-                  << " CRISISMESH 2.0 - AUTHOR / EMERGENCY OPERATIONS CONSOLE\n"
-                  << "================================================================\n"
-                  << "1. Dashboard\n2. Process Next FIFO Intake\n3. Dispatch Highest Priority Incident\n"
-                  << "4. View All Incidents\n5. Search Incident (Hash Table)\n6. Mark Field Response Completed\n"
-                  << "7. View Responders / Shelters / Supplies\n8. Block Road + Auto Reroute\n9. Undo Last Road Block (Stack)\n"
-                  << "10. BFS Analysis\n11. DFS Analysis\n12. Dijkstra Route Analysis\n13. Search Location (Binary Search)\n"
-                  << "14. Allocate Shelter\n15. Allocate Supplies\n16. User Directory\n17. Send Direct Message\n18. Broadcast Message\n"
-                  << "19. AVL Archive + Linked List History\n20. View Roads\n0. Logout\n";
-        const int choice = readInt("Select: ", 0, 20);
+        std::cout << "\n========== INCIDENT CENTER ==========\n";
+        system.showAllIncidents();
+        std::cout << "\n1. Process Next FIFO Intake\n"
+                  << "2. Search Incident\n"
+                  << "3. Mark Field Response Completed\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) return;
-
         std::string message;
-        if (choice == 1) system.dashboard();
-        else if (choice == 2) { system.processNextIntake(message); std::cout << message << '\n'; }
-        else if (choice == 3) { system.dispatchHighest(message); std::cout << message << '\n'; }
-        else if (choice == 4) system.showAllIncidents();
-        else if (choice == 5) system.showIncidentDetails(readLine("Incident ID: "));
-        else if (choice == 6) { system.markResponseCompleted(readLine("Incident ID: "), message); std::cout << message << '\n'; }
-        else if (choice == 7) system.showRespondersAndResources();
-        else if (choice == 8) { system.showRoads(); system.blockRoad(readLine("Road ID (example R-001): "), message); std::cout << message << '\n'; }
-        else if (choice == 9) { system.undoLastRoadBlock(message); std::cout << message << '\n'; }
-        else if (choice == 10) system.runBfs(readLine("Start location ID: "));
-        else if (choice == 11) system.runDfs(readLine("Start location ID: "));
-        else if (choice == 12) {
+        if (choice == 1) {
+            system.processNextIntake(message);
+            std::cout << message << '\n';
+        } else if (choice == 2) {
+            system.showIncidentDetails(readLine("Incident ID: "));
+        } else {
+            system.markResponseCompleted(readLine("Incident ID: "), message);
+            std::cout << message << '\n';
+        }
+    }
+}
+
+void dispatchCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n========== DISPATCH CENTER ==========\n"
+                  << "1. Dispatch Highest Priority Incident\n"
+                  << "2. View Responders\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 2);
+        if (choice == 0) return;
+        if (choice == 1) {
+            std::string message;
+            system.dispatchHighest(message);
+            std::cout << message << '\n';
+        } else {
+            system.showRespondersAndResources();
+        }
+    }
+}
+
+void cityGraphCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n========== CITY GRAPH & ROADS ==========\n";
+        showCityGraph(system);
+        std::cout << "\n1. View Location Names\n"
+                  << "2. View Road Details\n"
+                  << "3. Block Road + Auto Reroute\n"
+                  << "4. Undo Last Road Block\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 4);
+        if (choice == 0) return;
+        std::string message;
+        if (choice == 1) system.listLocations();
+        else if (choice == 2) system.showRoads();
+        else if (choice == 3) {
+            system.showRoads();
+            system.blockRoad(readLine("Road ID (example R-001): "), message);
+            std::cout << message << '\n';
+        } else {
+            system.undoLastRoadBlock(message);
+            std::cout << message << '\n';
+        }
+    }
+}
+
+void routeSearchCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n========== ROUTE & LOCATION SEARCH ==========\n"
+                  << "1. Dijkstra Shortest Route\n"
+                  << "2. Binary Search Location\n"
+                  << "3. View Locations\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 3);
+        if (choice == 0) return;
+        if (choice == 1) {
             const std::string from = readLine("From location ID: ");
             const std::string to = readLine("To location ID: ");
             system.runDijkstra(from, to);
-        }
-        else if (choice == 13) {
+        } else if (choice == 2) {
             const std::string id = readLine("Location ID: ");
             const int index = system.findLocationBinary(id);
-            if (index < 0) std::cout << "Not found.\n";
-            else std::cout << "Found: " << system.graph().node(index).id << " | " << system.graph().node(index).name << "\n";
+            if (index < 0) std::cout << "Location not found.\n";
+            else std::cout << "Found: " << system.graph().node(index).id << " | "
+                           << system.graph().node(index).name << "\n";
+        } else {
+            system.listLocations();
         }
-        else if (choice == 14) { system.allocateShelter(readLine("Incident ID: "), message); std::cout << message << '\n'; }
-        else if (choice == 15) {
+    }
+}
+
+void resourceCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n========== RESPONDERS & RESOURCES ==========\n"
+                  << "1. View Responders / Shelters / Supplies\n"
+                  << "2. Allocate Shelter\n"
+                  << "3. Allocate Supplies\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 3);
+        if (choice == 0) return;
+        if (choice == 1) {
+            system.showRespondersAndResources();
+        } else if (choice == 2) {
+            std::string message;
+            system.allocateShelter(readLine("Incident ID: "), message);
+            std::cout << message << '\n';
+        } else {
             const std::string id = readLine("Incident ID: ");
             const std::string type = readLine("Resource type (WATER/FOOD_PACK/MEDICAL_KIT/RESCUE_KIT): ");
             const int qty = readInt("Quantity: ", 1, 10000);
-            system.allocateSupply(id, type, qty, message); std::cout << message << '\n';
+            std::string message;
+            system.allocateSupply(id, type, qty, message);
+            std::cout << message << '\n';
         }
-        else if (choice == 16) system.listUsers();
-        else if (choice == 17) {
+    }
+}
+
+void userDirectoryCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n========== USER DIRECTORY ==========\n";
+        system.listUsers();
+        std::cout << "\n1. Refresh User List\n0. Back\n";
+        const int choice = readInt("Select: ", 0, 1);
+        if (choice == 0) return;
+    }
+}
+
+void messageCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n========== MESSAGE CENTER ==========\n"
+                  << "1. Send Direct Message\n"
+                  << "2. Broadcast Message\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 2);
+        if (choice == 0) return;
+        if (choice == 1) {
             system.listUsers();
             const int userId = readInt("Recipient User ID: ", 1, 100);
             system.sendMessage(userId, readLine("Message: "));
-            std::cout << "Direct message queued in manual Linked List message store.\n";
-        }
-        else if (choice == 18) {
+            std::cout << "Direct message stored.\n";
+        } else {
             system.sendMessage(-1, readLine("Broadcast message: "));
-            std::cout << "Broadcast queued for all registered users.\n";
+            std::cout << "Broadcast stored for all registered users.\n";
         }
-        else if (choice == 19) system.showArchive();
-        else if (choice == 20) system.showRoads();
+    }
+}
+
+void traversalCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n========== BFS / DFS ANALYSIS ==========\n"
+                  << "1. Run BFS\n"
+                  << "2. Run DFS\n"
+                  << "3. View City Graph\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 3);
+        if (choice == 0) return;
+        if (choice == 1) system.runBfs(readLine("Start location ID: "));
+        else if (choice == 2) system.runDfs(readLine("Start location ID: "));
+        else showCityGraph(system);
+    }
+}
+
+void archiveCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n========== ARCHIVE & HISTORY ==========\n";
+        system.showArchive();
+        std::cout << "\n1. Refresh Archive\n0. Back\n";
+        const int choice = readInt("Select: ", 0, 1);
+        if (choice == 0) return;
+    }
+}
+
+void dsaSummaryCenter() {
+    std::cout << "\n========== DSA SUMMARY ==========\n"
+              << "Array       : users, incidents, responders, resources\n"
+              << "Linked List : messages and closed-history records\n"
+              << "Stack       : road-block undo and DFS\n"
+              << "Queue       : FIFO emergency intake and BFS\n"
+              << "AVL Tree    : closed incident archive\n"
+              << "Max Heap    : emergency priority scheduling\n"
+              << "Hash Table  : incident and username lookup\n"
+              << "Merge Sort  : responder ranking\n"
+              << "Binary Search: location lookup\n"
+              << "Graph       : shared 20-node city\n"
+              << "Dijkstra    : shortest emergency route\n";
+    waitForBack();
+}
+
+void authorPortal(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n---------------- DASHBOARD ----------------\n"
+                  << "1. Incident Center\n"
+                  << "2. Dispatch Center\n"
+                  << "3. City Graph & Roads\n"
+                  << "4. Route & Location Search\n"
+                  << "5. Responders & Resources\n"
+                  << "6. User Directory\n"
+                  << "7. Message Center\n"
+                  << "8. BFS / DFS Analysis\n"
+                  << "9. Archive & History\n"
+                  << "10. DSA Summary\n"
+                  << "0. Logout\n";
+
+        const int choice = readInt("Select: ", 0, 10);
+        if (choice == 0) return;
+        if (choice == 1) incidentCenter(system);
+        else if (choice == 2) dispatchCenter(system);
+        else if (choice == 3) cityGraphCenter(system);
+        else if (choice == 4) routeSearchCenter(system);
+        else if (choice == 5) resourceCenter(system);
+        else if (choice == 6) userDirectoryCenter(system);
+        else if (choice == 7) messageCenter(system);
+        else if (choice == 8) traversalCenter(system);
+        else if (choice == 9) archiveCenter(system);
+        else dsaSummaryCenter();
     }
 }
 
@@ -238,14 +441,18 @@ void authorPortal(CrisisMeshSystem& system) {
 int main() {
     CrisisMeshSystem system;
 
-    std::cout << "\n================================================================\n"
+    std::cout << "\n============================================================\n"
               << "          CRISISMESH 2.0 - CONSOLE EDITION (C++17)\n"
               << " Dynamic Emergency Decision, Routing & Resource Allocation\n"
-              << "================================================================\n"
+              << "============================================================\n"
               << "Academic simulation only - no real emergency service connection.\n";
 
     while (true) {
-        std::cout << "\nMAIN PORTAL\n1. User Portal\n2. Author Portal\n3. About DSA Architecture\n0. Exit\n";
+        std::cout << "\nMAIN PORTAL\n"
+                  << "1. User Portal\n"
+                  << "2. Author Portal\n"
+                  << "3. About DSA Architecture\n"
+                  << "0. Exit\n";
         const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) break;
         if (choice == 1) userEntry(system);
@@ -253,10 +460,9 @@ int main() {
             if (authorLogin()) authorPortal(system);
         } else {
             std::cout << "\nOperational DSA path:\n"
-                      << "User Report -> manual Queue -> priority calculation -> manual Max Heap -> responder Array ->\n"
-                      << "manual Merge Sort -> Graph + manual Min Heap Dijkstra -> Stack road undo ->\n"
-                      << "user confirmation -> Linked List history + AVL Tree archive.\n"
-                      << "Additional evidence: manual Hash Table incident lookup, Binary Search locations, BFS and DFS.\n";
+                      << "User Report -> Queue -> Max Heap -> responder Array -> Merge Sort -> Dijkstra -> dispatch.\n"
+                      << "Supporting DSA: Stack, Linked List, AVL Tree, Hash Table, Binary Search, BFS and DFS.\n";
+            waitForBack();
         }
     }
 
