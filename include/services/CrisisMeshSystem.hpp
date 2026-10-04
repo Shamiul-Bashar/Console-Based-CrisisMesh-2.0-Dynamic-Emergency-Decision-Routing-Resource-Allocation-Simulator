@@ -13,6 +13,7 @@
 #include "dsa/Stack.hpp"
 #include "graph/Graph.hpp"
 #include "models/Models.hpp"
+#include "services/UserStorage.hpp"
 
 #include <iomanip>
 #include <iostream>
@@ -48,6 +49,8 @@ class CrisisMeshSystem {
     long long sequence_{0};
     int nextIncidentNumber_{201};
     int nextMessageId_{1};
+    int nextUserId_{1};
+    std::string userDataPath_{UserStorage::defaultPath()};
 
     Responder* responderById(const std::string& id) {
         for (std::size_t i = 0; i < responders_.size(); ++i)
@@ -79,6 +82,35 @@ class CrisisMeshSystem {
             priorityHeap_.pop();
         }
         return nullptr;
+    }
+
+    int findUserIndexById(int id) const {
+        for (std::size_t i = 0; i < users_.size(); ++i)
+            if (users_[i].id == id) return static_cast<int>(i);
+        return -1;
+    }
+
+    void rebuildUsernameIndex() {
+        usernameIndex_.clear();
+        for (std::size_t i = 0; i < users_.size(); ++i)
+            usernameIndex_.put(users_[i].username, static_cast<int>(i));
+    }
+
+    bool saveUsers() const {
+        return UserStorage::save(users_, nextUserId_, userDataPath_);
+    }
+
+    bool hasOpenIncidentsForUser(int userId) const {
+        for (std::size_t i = 0; i < incidents_.size(); ++i) {
+            const Incident& incident = incidents_[i];
+            if (incident.reportedByUserId != userId) continue;
+            if (incident.status != IncidentStatus::Closed &&
+                incident.status != IncidentStatus::Resolved &&
+                incident.status != IncidentStatus::Cancelled) {
+                return true;
+            }
+        }
+        return false;
     }
 
     bool routeUsesEdge(const Incident& incident, int edgeIndex) const {
@@ -148,17 +180,35 @@ class CrisisMeshSystem {
     }
 
 public:
-    CrisisMeshSystem() { graph_.seedCrisisMeshCity(); seedOperationalData(); }
+    explicit CrisisMeshSystem(const std::string& userDataPath = UserStorage::defaultPath())
+        : userDataPath_(userDataPath) {
+        graph_.seedCrisisMeshCity();
+        seedOperationalData();
+        UserStorage::load(users_, nextUserId_, userDataPath_);
+        rebuildUsernameIndex();
+    }
     const Graph& graph() const { return graph_; }
+    const std::string& userDataPath() const { return userDataPath_; }
 
     int registerUser(const User& input) {
         if (input.name.empty() || input.username.empty() || input.email.empty()) return -1;
         if (users_.full() || usernameIndex_.get(input.username)) return -1;
+
+        const int previousNextId = nextUserId_;
         User user = input;
-        user.id = static_cast<int>(users_.size()) + 1;
+        user.id = nextUserId_++;
+
         const int index = static_cast<int>(users_.size());
         users_.pushBack(user);
         usernameIndex_.put(user.username, index);
+
+        if (!saveUsers()) {
+            users_.popBack();
+            nextUserId_ = previousNextId;
+            rebuildUsernameIndex();
+            return -2;
+        }
+
         return user.id;
     }
 
@@ -175,12 +225,55 @@ public:
     bool resetPassword(const std::string& username, const std::string& password) {
         int* index = usernameIndex_.get(username);
         if (!index) return false;
+
+        const std::string previousPassword = users_[*index].password;
         users_[*index].password = password;
+
+        if (!saveUsers()) {
+            users_[*index].password = previousPassword;
+            return false;
+        }
+        return true;
+    }
+
+    bool deleteUserAccount(int userId, const std::string& password, std::string& out) {
+        const int index = findUserIndexById(userId);
+        if (index < 0) {
+            out = "User account not found.";
+            return false;
+        }
+
+        if (users_[index].password != password) {
+            out = "Password verification failed. Account was not deleted.";
+            return false;
+        }
+
+        if (hasOpenIncidentsForUser(userId)) {
+            out = "Account cannot be deleted while an emergency incident is still active.";
+            return false;
+        }
+
+        const StaticArray<User, MAX_USERS> backupUsers = users_;
+
+        for (std::size_t i = static_cast<std::size_t>(index); i + 1 < users_.size(); ++i)
+            users_[i] = users_[i + 1];
+        users_.popBack();
+        rebuildUsernameIndex();
+
+        if (!saveUsers()) {
+            users_ = backupUsers;
+            rebuildUsernameIndex();
+            out = "Account deletion could not be saved. No account data was removed.";
+            return false;
+        }
+
+        out = "Account deleted successfully. Persistent user data has been removed.";
         return true;
     }
 
     const User* user(int id) const {
-        return id > 0 && id <= static_cast<int>(users_.size()) ? &users_[id - 1] : nullptr;
+        const int index = findUserIndexById(id);
+        return index >= 0 ? &users_[index] : nullptr;
     }
 
     int findLocationBinary(const std::string& id) const {
@@ -203,6 +296,7 @@ public:
 
     std::string reportIncident(int userId, IncidentType type, const std::string& locationId,
                                int severity, int urgency, int victims, const std::string& description) {
+        if (!userExists(userId)) return "";
         const int location = findLocationBinary(locationId);
         if (incidents_.full() || location < 0 || severity < 1 || severity > 5 ||
             urgency < 1 || urgency > 5 || victims < 0) return "";
@@ -754,7 +848,7 @@ public:
     }
 
     bool userExists(int id) const {
-        return id > 0 && id <= static_cast<int>(users_.size());
+        return findUserIndexById(id) >= 0;
     }
 
     bool sendMessage(int recipientUserId, const std::string& text) {
@@ -937,23 +1031,44 @@ public:
 
     void showUserIncidents(int userId, bool closedOnly = false) const {
         int shown = 0;
-        std::cout << "\nYOUR INCIDENTS\n";
-        std::cout << std::left << std::setw(12) << "Incident" << std::setw(13) << "Type"
-                  << std::setw(12) << "Location" << std::setw(10) << "Priority"
-                  << std::setw(26) << "Status" << std::setw(16) << "Responder" << '\n';
-        std::cout << std::string(89, '-') << '\n';
+        std::cout << "\n=========================== EMERGENCY LIST ===========================\n";
+        std::cout << std::left
+                  << std::setw(12) << "Incident"
+                  << std::setw(12) << "Type"
+                  << std::setw(12) << "Location"
+                  << std::setw(11) << "Priority"
+                  << std::setw(13) << "Level"
+                  << std::setw(27) << "Status"
+                  << std::setw(18) << "Responder"
+                  << '\n';
+        std::cout << std::string(105, '-') << '\n';
+
         for (std::size_t i = 0; i < incidents_.size(); ++i) {
             const Incident& in = incidents_[i];
             if (in.reportedByUserId != userId) continue;
+
             const bool closed = in.status == IncidentStatus::Closed || in.status == IncidentStatus::Resolved;
             if (closedOnly && !closed) continue;
-            std::cout << std::left << std::setw(12) << in.id << std::setw(13) << toString(in.type)
-                      << std::setw(12) << in.locationId << std::setw(10) << in.priorityScore
-                      << std::setw(26) << toString(in.status)
-                      << std::setw(16) << (in.assignedResponderId.empty() ? "-" : in.assignedResponderId) << '\n';
+
+            std::cout << std::left
+                      << std::setw(12) << in.id
+                      << std::setw(12) << toString(in.type)
+                      << std::setw(12) << in.locationId
+                      << std::setw(11) << in.priorityScore
+                      << std::setw(13) << operationalPriorityName(in.priorityScore)
+                      << std::setw(27) << toString(in.status)
+                      << std::setw(18) << (in.assignedResponderId.empty() ? "-" : in.assignedResponderId)
+                      << '\n';
             ++shown;
         }
-        if (!shown) std::cout << "No matching incidents.\n";
+
+        std::cout << std::string(105, '-') << '\n';
+        if (!shown) {
+            std::cout << (closedOnly ? "No closed emergency records found.\n"
+                                     : "No emergency has been reported from this account.\n");
+        } else {
+            std::cout << "Total Records: " << shown << '\n';
+        }
     }
 
     void showAllIncidents() const {

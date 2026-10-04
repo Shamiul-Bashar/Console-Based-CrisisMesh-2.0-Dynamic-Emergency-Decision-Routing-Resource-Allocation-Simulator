@@ -205,8 +205,13 @@ void registerUser(CrisisMeshSystem& system) {
     }
 
     const int id = system.registerUser(user);
-    if (id < 0) std::cout << "Registration failed. Username may already exist or capacity is full.\n";
-    else std::cout << "Registration successful. User ID: " << id << '\n';
+    if (id == -2) {
+        std::cout << "Registration could not be saved to persistent storage. Please check file permissions.\n";
+    } else if (id < 0) {
+        std::cout << "Registration failed. Username may already exist or capacity is full.\n";
+    } else {
+        std::cout << "Registration successful. User ID: " << id << '\n';
+    }
 }
 
 void forgotPassword(CrisisMeshSystem& system) {
@@ -225,7 +230,9 @@ void forgotPassword(CrisisMeshSystem& system) {
         std::cout << "Password must contain at least 6 characters with a letter and a digit.\n";
         return;
     }
-    std::cout << (system.resetPassword(username, password) ? "Password reset successful.\n" : "Username not found.\n");
+    std::cout << (system.resetPassword(username, password)
+                  ? "Password reset successful.\n"
+                  : "Password reset failed. Please check persistent storage permissions.\n");
 }
 
 void reportIncident(CrisisMeshSystem& system, int userId) {
@@ -256,8 +263,9 @@ void userPortal(CrisisMeshSystem& system, int userId) {
                   << "6. My Profile\n"
                   << "7. City Graph & Locations\n"
                   << "8. Emergency Contacts\n"
+                  << "9. Delete Account\n"
                   << "0. Logout\n";
-        const int choice = readInt("Select: ", 0, 8);
+        const int choice = readInt("Select: ", 0, 9);
         if (choice == 0) return;
 
         if (choice == 1) {
@@ -305,6 +313,31 @@ void userPortal(CrisisMeshSystem& system, int userId) {
             waitForBack();
         } else if (choice == 8) {
             system.showEmergencyContacts();
+            waitForBack();
+        } else if (choice == 9) {
+            std::cout << "\n================ DELETE ACCOUNT ================\n"
+                      << "This action permanently removes your saved account data.\n"
+                      << "An account with an active emergency cannot be deleted.\n\n"
+                      << "1. Continue\n"
+                      << "0. Cancel\n";
+
+            if (readInt("Select: ", 0, 1) == 0) continue;
+
+            const std::string password = readPassword("Confirm password: ");
+            std::cout << "\n1. Permanently Delete Account\n"
+                      << "0. Cancel\n";
+
+            if (readInt("Select: ", 0, 1) == 0) continue;
+
+            std::string message;
+            const bool deleted = system.deleteUserAccount(userId, password, message);
+            std::cout << "\n" << message << '\n';
+
+            if (deleted) {
+                std::cout << "Returning to User Access...\n";
+                return;
+            }
+
             waitForBack();
         }
     }
