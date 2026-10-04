@@ -21,8 +21,8 @@ int main() {
     AVLTree tree; tree.insert(3, "C"); tree.insert(1, "A"); tree.insert(2, "B"); assert(tree.find(2) && *tree.find(2) == "B");
 
     Graph g; g.seedCrisisMeshCity();
-    auto bfs = BFS::traverse(g, 0); assert(bfs.size() == 24);
-    auto dfs = DFS::traverse(g, 0); assert(dfs.size() == 24);
+    auto bfs = BFS::traverse(g, 0); assert(bfs.size() == 20);
+    auto dfs = DFS::traverse(g, 0); assert(dfs.size() == 20);
     auto route = Dijkstra::shortestPath(g, 0, 18); assert(route.reachable);
     return 0;
 }

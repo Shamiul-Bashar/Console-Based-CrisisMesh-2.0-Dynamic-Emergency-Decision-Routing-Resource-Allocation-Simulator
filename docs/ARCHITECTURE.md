@@ -31,7 +31,7 @@ CrisisMeshSystem
   |     BFS / DFS / Binary Search / Merge Sort / Dijkstra
   |
   +-- Graph
-        24 nodes / 42 roads
+        20 nodes / 31 roads
 ```
 
 The program is deliberately in-memory and deterministic except for generated OTP values. Restarting the program resets users, incidents, road state, messages and operational state.

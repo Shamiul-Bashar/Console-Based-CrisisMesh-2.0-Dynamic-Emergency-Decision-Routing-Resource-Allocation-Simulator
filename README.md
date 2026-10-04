@@ -18,20 +18,20 @@ This edition is built for a Data Structures & Algorithms project demonstration. 
 
 ### Author Portal
 - Author login + random simulated console OTP
-- Operations dashboard
-- Process the FIFO incident intake Queue
-- Dispatch highest-priority incident from the Max Heap
-- View/search incidents
-- Mark field response complete
-- Inspect responders, shelters, and supplies
-- Block roads and automatically reroute active incidents
-- Undo the latest road block using a Stack
-- Run BFS, DFS, and Dijkstra on the current road graph
-- Binary-search locations
-- Allocate shelters and supplies
-- View registered users without passwords
-- Send direct messages or broadcast announcements
-- Inspect AVL archive and Linked List history
+- Login opens a `---------------- DASHBOARD ----------------` summary
+- Dashboard contains only **10 grouped main sections**:
+  1. Incident Center
+  2. Dispatch Center
+  3. City Graph & Roads
+  4. Route & Location Search
+  5. Responders & Resources
+  6. User Directory
+  7. Message Center
+  8. BFS / DFS Analysis
+  9. Archive & History
+  10. DSA Summary
+- Every section opens as its own screen and always provides `0. Back`, even when no data exists.
+- The City Graph is a compact **20-node / 31-road** network. The exact same location IDs and names are shared by User and Author portals.
 
 ## Core Operational Workflow
 
@@ -67,7 +67,7 @@ User emergency report
 | Max Heap | `include/dsa/MaxHeap.hpp` | Highest-priority emergency scheduling |
 | Min Heap | `include/dsa/MinHeap.hpp` | Dijkstra frontier |
 | Hash Table | `include/dsa/HashTable.hpp` | Fast incident and username lookup |
-| Graph | `include/graph/Graph.hpp` | 24-node, 42-road city network |
+| Graph | `include/graph/Graph.hpp` | 20-node, 31-road city network |
 | Dijkstra | `include/algorithms/Dijkstra.hpp` | Dispatch, rerouting, shelter selection |
 
 > STL containers are intentionally avoided for the assessed Array/Linked List/Stack/Queue/Tree/Heap/Hash structures. `std::vector` is used only inside the graph adjacency representation, matching the project instruction that STL is acceptable for graph work.
