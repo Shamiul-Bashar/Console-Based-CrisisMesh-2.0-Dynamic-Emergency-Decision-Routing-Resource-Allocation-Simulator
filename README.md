@@ -46,8 +46,8 @@ The current implementation includes:
 - user YES/NO confirmation and escalation;
 - Linked List history + AVL archive;
 - direct/broadcast messaging;
-- persistent registered-user accounts in a local text file;
-- safe User Portal account deletion;
+- persistent registered-user accounts, incident snapshots, and per-user activity history in local text files;
+- safe User Portal account deletion with retained audit history;
 - masked password input and console verification codes;
 - permanent Linux + Windows build/test CI.
 
@@ -77,7 +77,9 @@ The current implementation includes:
 | Closed archive | Manual **AVL Tree** |
 | Authentication | Password + random 6-digit console verification |
 | Account storage | Persistent local text file: `data/users.txt` |
-| Operational runtime | Incidents/messages/road/resource state remain in-memory |
+| Incident storage | Persistent snapshots: `data/incidents.txt` |
+| User audit history | Persistent chronological log: `data/user_history.txt` |
+| Operational runtime | Messages and temporary road/resource controls remain in-memory; incidents are restored |
 | Build validation | GitHub Actions on **Linux + Windows** |
 
 ---
@@ -119,6 +121,8 @@ Console-Based-risisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocati
 │   │   └── Models.hpp
 │   └── services/
 │       ├── AuthService.hpp
+│       ├── UserStorage.hpp
+│       ├── PersistentStorage.hpp
 │       └── CrisisMeshSystem.hpp
 │
 ├── src/
@@ -133,7 +137,9 @@ Console-Based-risisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocati
 | Layer | Responsibility |
 |---|---|
 | <code>src/main.cpp</code> | Console navigation, User/Author menus, input/output flow |
-| <code>services/CrisisMeshSystem.hpp</code> | Main application orchestration and operational state |
+| <code>services/CrisisMeshSystem.hpp</code> | Main application orchestration, persistence restore, and operational state |
+| <code>services/UserStorage.hpp</code> | Atomic text-file storage for registered user accounts |
+| <code>services/PersistentStorage.hpp</code> | Atomic incident snapshot + per-user activity/audit persistence |
 | <code>models/Models.hpp</code> | User, Incident, Responder, Shelter, Supply and lifecycle models |
 | <code>graph/Graph.hpp</code> | Shared 20-node / 31-road city network |
 | <code>algorithms/</code> | BFS, DFS, Dijkstra, Binary Search, Merge Sort |
@@ -759,62 +765,99 @@ Password: Crisis@2026
 
 ---
 
-# Persistent User Accounts
+# Persistent Data, Incident History & User Audit Trail
 
-Registered User accounts are persisted to a local text file:
+CrisisMesh now persists the information a User expects to survive a complete
+program restart. The storage remains deliberately text-file based so the project
+is easy to demonstrate, inspect, and explain without adding a database dependency.
 
 ~~~text
-data/users.txt
+data/
+├── users.txt          # registered accounts + next User ID
+├── incidents.txt      # incident snapshots + lifecycle/status + route assignment
+└── user_history.txt   # chronological per-user User/System/Author activity
 ~~~
 
-The file is created automatically on the first successful registration. It stores the next User ID and the currently registered accounts so a User can close the program, reopen it, and log in again with the same account.
+All three files are created automatically when needed. Writes use a temporary
+file and replacement strategy so a partially written file is not treated as
+valid runtime data.
 
 ~~~mermaid
 flowchart LR
     START["Program Start"]
-    LOAD["Load data/users.txt"]
-    INDEX["Rebuild username Hash Table"]
-    LOGIN["User Login"]
+    USERS["Load users.txt"]
+    INCIDENTS["Load incidents.txt"]
+    AUDIT["Load user_history.txt"]
+    REBUILD["Rebuild Hash Index / FIFO Queue / Max Heap / AVL Archive / responder usage"]
+    READY["Console Ready"]
 
-    REGISTER["Register User"]
-    RESET["Reset Password"]
-    DELETE["Delete Account"]
-    SAVE["Rewrite data/users.txt"]
+    ACTION["User / System / Author Action"]
+    SAVEI["Save incident snapshot"]
+    SAVEH["Save audit history"]
 
-    START --> LOAD --> INDEX --> LOGIN
-    REGISTER --> SAVE
-    RESET --> SAVE
-    DELETE --> SAVE
+    START --> USERS --> INCIDENTS --> AUDIT --> REBUILD --> READY
+    ACTION --> SAVEI
+    ACTION --> SAVEH
 ~~~
 
-### Persistence rules
+## Persistence behavior
 
-- Registration is saved immediately.
-- Password reset is saved immediately.
-- Account deletion removes the User from persistent storage.
-- User IDs are monotonic; a deleted ID is **not reused**.
-- Account deletion requires password confirmation.
-- An account with an active emergency cannot be deleted, because the reporting User is still required for the resolution workflow.
-- The runtime file and its temporary write file are excluded from Git through `.gitignore`.
+- Registration, password reset, and account deletion are saved immediately.
+- Every reported emergency is stored in `data/incidents.txt`.
+- Incident lifecycle changes such as prioritization, assignment, recall,
+  response completion, User confirmation, shelter allocation, supply allocation,
+  and rerouting update the persisted incident snapshot.
+- On restart, queued incidents are returned to the FIFO Queue and prioritized
+  incidents are rebuilt into the Max Heap.
+- Closed incidents rebuild the Linked List history and AVL archive.
+- Active assignments restore responder availability/usage so a restart does not
+  silently free a resource that is still dispatched.
+- `data/user_history.txt` records timestamp, actor, action, incident ID, and a
+  short explanation. The User Portal shows this under **My History & Activity Log**.
+- The Author can inspect an individual User's retained activity through
+  **User Directory → View User Persistent History**.
+- User IDs are monotonic; deleted IDs are not reused.
+- Account deletion removes login credentials but retains historical incident and
+  audit records. An account with an active emergency still cannot be deleted.
+- Runtime data files, temporary files, and backups are excluded by `.gitignore`.
 
-> The text-file persistence layer is designed for this academic console project. It is not a production identity/database system, and the local account file should be treated as private data.
+> These text files are appropriate for this academic console simulator. They are
+> not a production database or production identity system, and local account
+> data should be treated as private.
 
 ---
-
 # Professional Emergency List
 
 The User Portal presents reported emergencies in a structured table:
 
 ~~~text
-Incident    Type        Location    Priority   Level        Status                     Responder
----------------------------------------------------------------------------------------------------------
-INC-201     POLICE      LOC-014     115        HIGH         PRIORITIZED                -
-INC-202     FIRE        LOC-018     128        CRITICAL     EN_ROUTE                   FIRE-UNIT-03
----------------------------------------------------------------------------------------------------------
+No.  Incident    Type         Location    Priority  Level       Status                        Responder
+----------------------------------------------------------------------------------------------------------------
+1    INC-201     POLICE       LOC-014     115       HIGH        PRIORITIZED                   -
+2    INC-202     FIRE         LOC-018     128       CRITICAL    EN_ROUTE                      FIRE-UNIT-03
+----------------------------------------------------------------------------------------------------------------
 Total Records: 2
 ~~~
 
-The same table style is reused for Closed History, with clear priority level, lifecycle status, and assigned responder information.
+The same table style is reused for closed incident history. Because incident snapshots are persisted, the table remains available after closing and reopening the executable. A separate activity table explains **what happened, who caused the change, when it happened, and which incident was involved**.
+
+---
+
+# Emergency Contact Directory
+
+The User Portal exposes all configured response contacts in one fixed-width table:
+
+~~~text
+No.  Response Unit      Type             Location    Facility                           Hotline
+--------------------------------------------------------------------------------------------------
+1    FIRE-UNIT-01       FIRE TRUCK       LOC-003     Main Fire Station                  201
+...
+12   RESCUE-UNIT-02     RESCUE TEAM      LOC-013     Shelter B Rescue Base              502
+--------------------------------------------------------------------------------------------------
+Total Emergency Contacts: 12 | Hotline format: 3-digit simulation numbers
+~~~
+
+The wider Facility column prevents long names from breaking alignment, and the 3-digit hotline values are explicitly simulation contacts.
 
 ---
 

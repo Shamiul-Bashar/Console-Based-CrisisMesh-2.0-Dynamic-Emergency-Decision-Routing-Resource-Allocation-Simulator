@@ -7,7 +7,13 @@ cmake-build-*/
 .vscode/
 .idea/
 
-# Runtime persistent user data
+# Runtime persistent text data
 data/users.txt
 data/users.txt.tmp
 data/users.txt.bak
+data/incidents.txt
+data/incidents.txt.tmp
+data/incidents.txt.bak
+data/user_history.txt
+data/user_history.txt.tmp
+data/user_history.txt.bak

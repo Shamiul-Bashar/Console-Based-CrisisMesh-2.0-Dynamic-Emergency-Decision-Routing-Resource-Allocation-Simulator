@@ -175,6 +175,20 @@ struct HistoryEntry {
     std::string summary;
 };
 
+// -----------------------------------------------------------------------------
+// Persistent per-user audit/history record.
+// Keeps an explainable timeline without coupling history to the live User object.
+// -----------------------------------------------------------------------------
+struct UserActivityEntry {
+    long long sequence{0};
+    int userId{0};
+    std::string timestamp;
+    std::string actor;
+    std::string action;
+    std::string incidentId;
+    std::string details;
+};
+
 struct IncidentHeapEntry {
     int incidentIndex{-1};
     int priority{0};

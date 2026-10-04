@@ -6,6 +6,7 @@ This file maps the tentative marking distribution directly to executable project
 
 - **Array**: manual `StaticArray` and `DynamicArray` in `include/dsa/Array.hpp`.
   - Stores users, incidents, responders, shelters and supplies.
+  - The heap-backed `DynamicArray` stores persistent per-user audit/history records without inflating the Windows stack.
   - Responder candidate ranking uses an explicit fixed array buffer.
 - **Linked List**: manual singly linked list in `include/dsa/LinkedList.hpp`.
   - Stores chronological closed-incident history.
@@ -61,3 +62,8 @@ The assessed structures above are implemented manually. `std::vector` is used on
 - Rescue strength is tracked as team availability.
 - Manual assignment decreases available strength and increases on-operation strength.
 - Marking response complete restores the assigned strength.
+
+
+## Persistence and DSA reconstruction
+
+Text-file persistence does not replace the assessed data structures. On startup, persisted incident snapshots are used to rebuild the incident Hash Table, FIFO Queue, Max Heap, Linked List closed history, AVL archive, and active responder usage. This preserves both restart continuity and direct DSA evidence in the running program.

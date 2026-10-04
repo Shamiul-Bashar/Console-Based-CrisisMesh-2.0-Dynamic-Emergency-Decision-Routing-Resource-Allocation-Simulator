@@ -14,7 +14,10 @@
 #include "graph/Graph.hpp"
 #include "models/Models.hpp"
 #include "services/UserStorage.hpp"
+#include "services/PersistentStorage.hpp"
 
+#include <chrono>
+#include <ctime>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -36,6 +39,7 @@ class CrisisMeshSystem {
     StaticArray<Responder, MAX_RESPONDERS> responders_;
     StaticArray<Shelter, MAX_SHELTERS> shelters_;
     StaticArray<SupplyResource, MAX_RESOURCES> resources_;
+    DynamicArray<UserActivityEntry> userActivity_; // Manual heap-backed array avoids large stack objects.
 
     Queue<int> intakeQueue_; // Manual FIFO queue.
     MaxHeap<IncidentHeapEntry, IncidentHigherPriority> priorityHeap_; // Manual max heap.
@@ -50,7 +54,13 @@ class CrisisMeshSystem {
     int nextIncidentNumber_{201};
     int nextMessageId_{1};
     int nextUserId_{1};
+    long long nextActivitySequence_{1};
+
+    // Persistent text-file locations. Each concern is kept in a separate file
+    // so the data remains easy to inspect during testing and viva.
     std::string userDataPath_{UserStorage::defaultPath()};
+    std::string incidentDataPath_{IncidentStorage::defaultPath()};
+    std::string userHistoryPath_{UserHistoryStorage::defaultPath()};
 
     Responder* responderById(const std::string& id) {
         for (std::size_t i = 0; i < responders_.size(); ++i)
@@ -98,6 +108,146 @@ class CrisisMeshSystem {
 
     bool saveUsers() const {
         return UserStorage::save(users_, nextUserId_, userDataPath_);
+    }
+
+    bool saveIncidents() const {
+        return IncidentStorage::save(incidents_, nextIncidentNumber_, sequence_, incidentDataPath_);
+    }
+
+    bool saveUserHistory() const {
+        return UserHistoryStorage::save(userActivity_, nextActivitySequence_, userHistoryPath_);
+    }
+
+    static std::string currentTimestamp() {
+        const auto now = std::chrono::system_clock::now();
+        const std::time_t raw = std::chrono::system_clock::to_time_t(now);
+        std::tm local{};
+#ifdef _WIN32
+        localtime_s(&local, &raw);
+#else
+        localtime_r(&raw, &local);
+#endif
+        char buffer[20]{};
+        if (std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &local) == 0)
+            return "UNKNOWN_TIME";
+        return buffer;
+    }
+
+    void appendUserActivity(int userId,
+                            const std::string& actor,
+                            const std::string& action,
+                            const std::string& incidentId,
+                            const std::string& details) {
+        if (userId <= 0) return;
+
+        userActivity_.pushBack({
+            nextActivitySequence_++, userId, currentTimestamp(), actor,
+            action, incidentId, details
+        });
+        saveUserHistory();
+    }
+
+    void rebuildIncidentRuntimeState() {
+        incidentIndex_.clear();
+        bool routeSnapshotNormalized = false;
+
+        for (std::size_t i = 0; i < incidents_.size(); ++i) {
+            Incident& incident = incidents_[i];
+
+            // Resolve the location from the current city graph instead of
+            // blindly trusting the persisted numeric index.
+            const int resolvedLocation = findLocationBinary(incident.locationId);
+            if (resolvedLocation >= 0)
+                incident.locationIndex = resolvedLocation;
+
+            incidentIndex_.put(incident.id, static_cast<int>(i));
+
+            // Rebuild the DSA scheduling structures from persisted lifecycle state.
+            if (incident.status == IncidentStatus::Queued) {
+                intakeQueue_.enqueue(static_cast<int>(i));
+            } else if (incident.status == IncidentStatus::Prioritized) {
+                priorityHeap_.push({static_cast<int>(i), incident.priorityScore, incident.sequence});
+            }
+
+            // Restore shelter occupancy contributed by persisted incident allocation.
+            if (!incident.shelterId.empty()) {
+                const int people = incident.victimCount > 0 ? incident.victimCount : 1;
+                for (std::size_t s = 0; s < shelters_.size(); ++s) {
+                    if (shelters_[s].id != incident.shelterId) continue;
+                    const int room = shelters_[s].capacity - shelters_[s].occupancy;
+                    if (room > 0)
+                        shelters_[s].occupancy += people < room ? people : room;
+                    break;
+                }
+            }
+
+            // Restore supply consumption represented by the incident snapshot.
+            if (!incident.allocatedResourceType.empty() &&
+                incident.allocatedResourceQuantity > 0) {
+                for (std::size_t r = 0; r < resources_.size(); ++r) {
+                    if (resources_[r].type != incident.allocatedResourceType) continue;
+                    resources_[r].quantity -= incident.allocatedResourceQuantity;
+                    if (resources_[r].quantity < 0) resources_[r].quantity = 0;
+                    break;
+                }
+            }
+
+            // Restore resource consumption for dispatches that were still
+            // active when the previous program session ended.
+            const bool activeAssignment =
+                incident.status == IncidentStatus::Assigned ||
+                incident.status == IncidentStatus::EnRoute ||
+                incident.status == IncidentStatus::RerouteRequired ||
+                incident.status == IncidentStatus::Unreachable;
+
+            if (activeAssignment && !incident.assignedResponderId.empty()) {
+                Responder* responder = responderById(incident.assignedResponderId);
+                if (responder) {
+                    int strength = incident.assignedStrength;
+                    if (strength < 0) strength = 0;
+                    if (strength > responder->availableStrength)
+                        strength = responder->availableStrength;
+                    responder->availableStrength -= strength;
+
+                    if (responder->type != "POLICE_UNIT")
+                        responder->assignedIncidentId = incident.id;
+
+                    if (responder->availability != ResponderAvailability::Offline)
+                        responder->availability = responder->availableStrength > 0
+                            ? ResponderAvailability::Available
+                            : ResponderAvailability::Busy;
+
+                    // Road blocks themselves are session controls. Therefore an
+                    // active persisted dispatch is recalculated against the
+                    // freshly seeded road graph instead of keeping a stale path.
+                    reroute(incident);
+                    routeSnapshotNormalized = true;
+                }
+            }
+
+            // A completed non-police response leaves the unit at the incident
+            // location. Replaying records restores the latest known location.
+            const bool responseFinished =
+                incident.status == IncidentStatus::AwaitingUserConfirmation ||
+                incident.status == IncidentStatus::Resolved ||
+                incident.status == IncidentStatus::Closed;
+            if (responseFinished && !incident.assignedResponderId.empty()) {
+                Responder* responder = responderById(incident.assignedResponderId);
+                if (responder && responder->type != "POLICE_UNIT" && incident.locationIndex >= 0)
+                    responder->currentLocation = incident.locationIndex;
+            }
+
+            // Rebuild the two assessed closed-history structures.
+            if (incident.status == IncidentStatus::Closed ||
+                incident.status == IncidentStatus::Resolved) {
+                history_.pushBack({incident.sequence, incident.id,
+                                   incident.id + " closed (restored from persistent incident history)"});
+                archive_.insert(incident.sequence, incident.id);
+            }
+        }
+
+        if (routeSnapshotNormalized && !incidents_.empty())
+            saveIncidents();
     }
 
     bool hasOpenIncidentsForUser(int userId) const {
@@ -180,15 +330,31 @@ class CrisisMeshSystem {
     }
 
 public:
-    explicit CrisisMeshSystem(const std::string& userDataPath = UserStorage::defaultPath())
-        : userDataPath_(userDataPath) {
+    // =========================================================================
+    // STARTUP / PERSISTENCE RESTORATION
+    // =========================================================================
+    explicit CrisisMeshSystem(
+        const std::string& userDataPath = UserStorage::defaultPath(),
+        const std::string& incidentDataPath = IncidentStorage::defaultPath(),
+        const std::string& userHistoryPath = UserHistoryStorage::defaultPath())
+        : userDataPath_(userDataPath),
+          incidentDataPath_(incidentDataPath),
+          userHistoryPath_(userHistoryPath) {
         graph_.seedCrisisMeshCity();
         seedOperationalData();
+
         UserStorage::load(users_, nextUserId_, userDataPath_);
+        IncidentStorage::load(incidents_, nextIncidentNumber_, sequence_, incidentDataPath_);
+        UserHistoryStorage::load(userActivity_, nextActivitySequence_, userHistoryPath_);
+
         rebuildUsernameIndex();
+        rebuildIncidentRuntimeState();
     }
+
     const Graph& graph() const { return graph_; }
     const std::string& userDataPath() const { return userDataPath_; }
+    const std::string& incidentDataPath() const { return incidentDataPath_; }
+    const std::string& userHistoryPath() const { return userHistoryPath_; }
 
     int registerUser(const User& input) {
         if (input.name.empty() || input.username.empty() || input.email.empty()) return -1;
@@ -209,6 +375,8 @@ public:
             return -2;
         }
 
+        appendUserActivity(user.id, "USER", "ACCOUNT_REGISTERED", "",
+                           "User account registered successfully.");
         return user.id;
     }
 
@@ -233,6 +401,8 @@ public:
             users_[*index].password = previousPassword;
             return false;
         }
+        appendUserActivity(users_[*index].id, "USER", "PASSWORD_RESET", "",
+                           "Account password reset successfully.");
         return true;
     }
 
@@ -267,7 +437,9 @@ public:
             return false;
         }
 
-        out = "Account deleted successfully. Persistent user data has been removed.";
+        appendUserActivity(userId, "USER", "ACCOUNT_DELETED", "",
+                           "Account credentials removed; historical audit records retained.");
+        out = "Account deleted successfully. Credentials were removed, while historical audit records were retained.";
         return true;
     }
 
@@ -318,6 +490,10 @@ public:
         incidents_.pushBack(incident);
         incidentIndex_.put(incident.id, index);
         intakeQueue_.enqueue(index);
+
+        saveIncidents();
+        appendUserActivity(userId, "USER", "EMERGENCY_REPORTED", incident.id,
+                           std::string(toString(type)) + " emergency reported at " + locationId + ".");
         return incident.id;
     }
 
@@ -341,6 +517,11 @@ public:
         incident.priorityScore = calculatePriority(incident.severity, incident.urgency, incident.victimCount, incident.type);
         incident.status = IncidentStatus::Prioritized;
         priorityHeap_.push({index, incident.priorityScore, incident.sequence});
+        saveIncidents();
+        appendUserActivity(incident.reportedByUserId, "SYSTEM", "INCIDENT_PRIORITIZED", incident.id,
+                           "FIFO intake processed; priority score " + std::to_string(incident.priorityScore) +
+                           " placed in Max Heap.");
+
         out = "Incident " + incident.id + " processed successfully. Priority: " +
               std::to_string(incident.priorityScore) +
               " (moved to Max Heap and ready for Incident Analysis).";
@@ -630,6 +811,11 @@ public:
         Incident* top = highestReadyIncident();
         if (top && top->id == incident->id) priorityHeap_.pop();
 
+        saveIncidents();
+        appendUserActivity(incident->reportedByUserId, "AUTHOR", "RESPONSE_ASSIGNED", incident->id,
+                           responder->id + " assigned; strength " + std::to_string(strength) +
+                           ", route distance " + std::to_string(route.distance) + " km.");
+
         out = "Response assigned successfully.\n"
               "Incident: " + incident->id +
               "\nResource: " + responder->id +
@@ -676,6 +862,10 @@ public:
         const int* index = incidentIndex_.get(id);
         if (index) priorityHeap_.push({*index, incident->priorityScore, incident->sequence});
 
+        saveIncidents();
+        appendUserActivity(incident->reportedByUserId, "AUTHOR", "RESPONSE_RECALLED", incident->id,
+                           "Assigned response was recalled and the incident returned to Incident Analysis.");
+
         out = "Response recalled successfully. Resource availability restored and incident returned to Incident Analysis.";
         return true;
     }
@@ -705,8 +895,16 @@ public:
         }
 
         incident->status = IncidentStatus::AwaitingUserConfirmation;
-        out = "Field response completed. Assigned response strength returned to availability. "
-              "The reporting user must now confirm YES/NO.";
+        saveIncidents();
+        appendUserActivity(incident->reportedByUserId, "AUTHOR", "FIELD_RESPONSE_COMPLETED", incident->id,
+                           "Field response completed; waiting for the reporting user's YES/NO confirmation.");
+
+        out = "Field response marked as completed.\n"
+              "Assigned response strength is available again.\n"
+              "Incident " + incident->id + " is now AWAITING_USER_CONFIRMATION.\n"
+              "The reporting user must confirm YES/NO from User Portal > "
+              "Confirm Problem Solved / Still Need Help.\n"
+              "Confirmation is not entered in Dispatch Center.";
         return true;
     }
 
@@ -715,28 +913,49 @@ public:
         Incident* incident = findIncident(id);
         if (!incident || incident->reportedByUserId != userId ||
             incident->status != IncidentStatus::AwaitingUserConfirmation) {
-            out = "Confirmation rejected: wrong owner or invalid state."; return false;
+            out = "Confirmation rejected: this incident is not awaiting confirmation from the logged-in user.";
+            return false;
         }
+
         if (solved) {
             incident->userConfirmedResolved = true;
             incident->status = IncidentStatus::Resolved;
-            history_.pushBack({incident->sequence, incident->id, incident->id + " resolved by reporting user"});
+            history_.pushBack({incident->sequence, incident->id,
+                               incident->id + " resolved by reporting user"});
             incident->status = IncidentStatus::Closed;
             archive_.insert(incident->sequence, incident->id);
-            out = "YES -> RESOLVED -> CLOSED; stored in Linked List history + AVL archive.";
+
+            saveIncidents();
+            appendUserActivity(userId, "USER", "RESOLUTION_CONFIRMED_YES", incident->id,
+                               "Problem confirmed solved; incident moved to CLOSED.");
+
+            out = "Confirmation accepted: problem solved. Incident is now CLOSED and saved in persistent history.";
             return true;
         }
+
         incident->status = IncidentStatus::Escalated;
-        incident->escalationReason = reason;
+        incident->escalationReason = reason.empty() ? "Reporter still needs help." : reason;
         if (incident->urgency < 5) ++incident->urgency;
-        incident->priorityScore = calculatePriority(incident->severity, incident->urgency, incident->victimCount, incident->type);
+        incident->priorityScore = calculatePriority(
+            incident->severity, incident->urgency, incident->victimCount, incident->type);
         incident->assignedResponderId.clear();
         incident->assignedStrength = 0;
-        incident->routeNodes.clear(); incident->routeEdges.clear();
+        incident->routeNodes.clear();
+        incident->routeEdges.clear();
+        incident->routeCost = 0.0;
+        incident->routeDistance = 0.0;
+        incident->routeTravelTime = 0;
         incident->status = IncidentStatus::Queued;
+
         const int* index = incidentIndex_.get(id);
         if (index) intakeQueue_.enqueue(*index);
-        out = "NO -> ESCALATED -> urgency increased -> requeued in FIFO Queue.";
+
+        saveIncidents();
+        appendUserActivity(userId, "USER", "RESOLUTION_CONFIRMED_NO", incident->id,
+                           "Reporter still needs help; urgency updated and incident requeued. Reason: " +
+                           incident->escalationReason);
+
+        out = "Confirmation accepted: help is still required. Incident urgency was updated and the incident was requeued.";
         return true;
     }
 
@@ -760,6 +979,7 @@ public:
                 if (reroute(incident)) ++rerouted; else ++unreachable;
             }
         }
+        saveIncidents();
         out = "Road " + roadId + " blocked successfully.\n"
               "Affected reroutes: " + std::to_string(rerouted) +
               " | Unreachable incidents: " + std::to_string(unreachable) +
@@ -777,6 +997,7 @@ public:
         int recovered = 0;
         for (std::size_t i = 0; i < incidents_.size(); ++i)
             if (incidents_[i].status == IncidentStatus::Unreachable && !incidents_[i].assignedResponderId.empty() && reroute(incidents_[i])) ++recovered;
+        saveIncidents();
         out = "Road " + graph_.edge(edgeIndex).id + " unblocked successfully.\n"
               "Recovered routes: " + std::to_string(recovered) +
               " | Remaining block stack depth: " + std::to_string(roadUndoStack_.size());
@@ -811,6 +1032,9 @@ public:
         if (best < 0) { out = "No reachable shelter with sufficient capacity."; return false; }
         shelters_[best].occupancy += people;
         incident->shelterId = shelters_[best].id;
+        saveIncidents();
+        appendUserActivity(incident->reportedByUserId, "AUTHOR", "SHELTER_ALLOCATED", incident->id,
+                           "Shelter " + incident->shelterId + " allocated using Dijkstra + capacity check.");
         out = "Allocated " + shelters_[best].id + " using Dijkstra + capacity check.";
         return true;
     }
@@ -836,6 +1060,9 @@ public:
                 resources_[i].quantity -= quantity;
                 incident->allocatedResourceType = type;
                 incident->allocatedResourceQuantity += quantity;
+                saveIncidents();
+                appendUserActivity(incident->reportedByUserId, "AUTHOR", "SUPPLY_ALLOCATED", incident->id,
+                                   type + " x" + std::to_string(quantity) + " allocated to the incident.");
                 out = "Supply allocated successfully.\n"
                       "Incident: " + id + " | Resource: " + type +
                       " | Allocated: " + std::to_string(quantity) +
@@ -849,6 +1076,20 @@ public:
 
     bool userExists(int id) const {
         return findUserIndexById(id) >= 0;
+    }
+
+    bool hasUserHistory(int userId) const {
+        for (std::size_t i = 0; i < userActivity_.size(); ++i)
+            if (userActivity_[i].userId == userId) return true;
+        return false;
+    }
+
+    void recordUserLogin(int userId) {
+        appendUserActivity(userId, "USER", "LOGIN", "", "User logged in successfully.");
+    }
+
+    void recordUserLogout(int userId) {
+        appendUserActivity(userId, "USER", "LOGOUT", "", "User logged out.");
     }
 
     bool sendMessage(int recipientUserId, const std::string& text) {
@@ -1031,44 +1272,89 @@ public:
 
     void showUserIncidents(int userId, bool closedOnly = false) const {
         int shown = 0;
-        std::cout << "\n=========================== EMERGENCY LIST ===========================\n";
+        const std::string title = closedOnly ? "CLOSED INCIDENT HISTORY" : "MY EMERGENCY RECORDS";
+        const std::string divider(112, '-');
+
+        std::cout << "\n============================== " << title
+                  << " ==============================\n";
         std::cout << std::left
+                  << std::setw(5)  << "No."
                   << std::setw(12) << "Incident"
-                  << std::setw(12) << "Type"
+                  << std::setw(13) << "Type"
                   << std::setw(12) << "Location"
-                  << std::setw(11) << "Priority"
-                  << std::setw(13) << "Level"
-                  << std::setw(27) << "Status"
-                  << std::setw(18) << "Responder"
-                  << '\n';
-        std::cout << std::string(105, '-') << '\n';
+                  << std::setw(10) << "Priority"
+                  << std::setw(12) << "Level"
+                  << std::setw(30) << "Status"
+                  << "Responder\n";
+        std::cout << divider << '\n';
 
         for (std::size_t i = 0; i < incidents_.size(); ++i) {
             const Incident& in = incidents_[i];
             if (in.reportedByUserId != userId) continue;
 
-            const bool closed = in.status == IncidentStatus::Closed || in.status == IncidentStatus::Resolved;
+            const bool closed = in.status == IncidentStatus::Closed ||
+                                in.status == IncidentStatus::Resolved;
             if (closedOnly && !closed) continue;
 
-            std::cout << std::left
-                      << std::setw(12) << in.id
-                      << std::setw(12) << toString(in.type)
-                      << std::setw(12) << in.locationId
-                      << std::setw(11) << in.priorityScore
-                      << std::setw(13) << operationalPriorityName(in.priorityScore)
-                      << std::setw(27) << toString(in.status)
-                      << std::setw(18) << (in.assignedResponderId.empty() ? "-" : in.assignedResponderId)
-                      << '\n';
             ++shown;
+            std::cout << std::left
+                      << std::setw(5)  << shown
+                      << std::setw(12) << in.id
+                      << std::setw(13) << toString(in.type)
+                      << std::setw(12) << in.locationId
+                      << std::setw(10) << in.priorityScore
+                      << std::setw(12) << operationalPriorityName(in.priorityScore)
+                      << std::setw(30) << toString(in.status)
+                      << (in.assignedResponderId.empty() ? "-" : in.assignedResponderId)
+                      << '\n';
         }
 
-        std::cout << std::string(105, '-') << '\n';
+        std::cout << divider << '\n';
         if (!shown) {
             std::cout << (closedOnly ? "No closed emergency records found.\n"
                                      : "No emergency has been reported from this account.\n");
         } else {
             std::cout << "Total Records: " << shown << '\n';
         }
+    }
+
+    void showUserHistory(int userId) const {
+        const std::string divider(118, '-');
+        auto clipped = [](const std::string& value, std::size_t limit) {
+            if (value.size() <= limit) return value;
+            if (limit <= 3) return value.substr(0, limit);
+            return value.substr(0, limit - 3) + "...";
+        };
+
+        std::cout << "\n=============================== PERSISTENT USER ACTIVITY HISTORY ===============================\n";
+        std::cout << std::left
+                  << std::setw(21) << "Time"
+                  << std::setw(10) << "Actor"
+                  << std::setw(27) << "Action"
+                  << std::setw(13) << "Incident"
+                  << "Details\n";
+        std::cout << divider << '\n';
+
+        int shown = 0;
+        for (std::size_t i = userActivity_.size(); i > 0; --i) {
+            const UserActivityEntry& entry = userActivity_[i - 1];
+            if (entry.userId != userId) continue;
+
+            std::cout << std::left
+                      << std::setw(21) << clipped(entry.timestamp, 19)
+                      << std::setw(10) << clipped(entry.actor, 8)
+                      << std::setw(27) << clipped(entry.action, 25)
+                      << std::setw(13) << (entry.incidentId.empty() ? "-" : clipped(entry.incidentId, 11))
+                      << clipped(entry.details, 46) << '\n';
+            ++shown;
+        }
+
+        std::cout << divider << '\n';
+        if (!shown)
+            std::cout << "No persistent activity has been recorded for User ID " << userId << ".\n";
+        else
+            std::cout << "Total Activity Records: " << shown
+                      << " | Stored in: " << userHistoryPath_ << '\n';
     }
 
     void showAllIncidents() const {
@@ -1157,22 +1443,35 @@ public:
     }
 
     void showEmergencyContacts() const {
-        std::cout << "\n================ EMERGENCY CONTACTS ================\n";
-        std::cout << std::left << std::setw(18) << "Response Unit"
-                  << std::setw(16) << "Type"
+        const std::string divider(98, '-');
+        std::cout << "\n============================= EMERGENCY CONTACT DIRECTORY =============================\n";
+        std::cout << std::left
+                  << std::setw(5)  << "No."
+                  << std::setw(19) << "Response Unit"
+                  << std::setw(17) << "Type"
                   << std::setw(12) << "Location"
-                  << std::setw(30) << "Facility"
+                  << std::setw(35) << "Facility"
                   << "Hotline\n";
-        std::cout << std::string(86, '-') << '\n';
+        std::cout << divider << '\n';
 
         for (std::size_t i = 0; i < responders_.size(); ++i) {
             const Responder& r = responders_[i];
-            std::cout << std::left << std::setw(18) << r.id
-                      << std::setw(16) << r.type
+            std::string readableType = r.type;
+            for (char& ch : readableType)
+                if (ch == '_') ch = ' ';
+
+            std::cout << std::left
+                      << std::setw(5)  << (i + 1)
+                      << std::setw(19) << r.id
+                      << std::setw(17) << readableType
                       << std::setw(12) << graph_.node(r.currentLocation).id
-                      << std::setw(30) << r.baseFacility
+                      << std::setw(35) << r.baseFacility
                       << r.contactNumber << '\n';
         }
+
+        std::cout << divider << '\n'
+                  << "Total Emergency Contacts: " << responders_.size()
+                  << " | Hotline format: 3-digit simulation numbers\n";
     }
 
     void showActiveDispatches() const {
@@ -1288,7 +1587,8 @@ public:
     }
 
     void showArchive() const {
-        std::cout << "\nAVL CLOSED-INCIDENT ARCHIVE\n";
+        std::cout << "\n================ ARCHIVE & HISTORY ================\n"
+                  << "AVL CLOSED-INCIDENT ARCHIVE\n";
         archive_.inorder([](long long seq, const std::string& id){ std::cout << seq << " | " << id << '\n'; });
         if (!archive_.size()) std::cout << "Archive empty.\n";
         std::cout << "LINKED-LIST HISTORY\n";
