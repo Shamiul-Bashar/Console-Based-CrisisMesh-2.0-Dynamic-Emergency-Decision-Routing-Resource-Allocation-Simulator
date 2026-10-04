@@ -179,7 +179,20 @@ int main() {
     assert(system.responderAvailableStrength("FIRE-UNIT-03") == 1);
     assert(system.confirmResolution(userId, fireIncidentA, true, "", message));
 
-    // Leave one new incident queued so startup reconstruction can be verified.
+    // Keep one dispatch active so responder usage can be reconstructed after restart.
+    const std::string activeMedicalIncident = system.createIncident(
+        userId, IncidentType::Medical, "LOC-017", 4, 4, 1, "Active restart check");
+    assert(!activeMedicalIncident.empty());
+    assert(system.processNextIntake(message));
+    assert(system.assignResponse(activeMedicalIncident, "AMB-UNIT-04", 1, message));
+    assert(system.responderAvailableStrength("AMB-UNIT-04") == 0);
+
+    // Incident-linked supply consumption must also survive the restart.
+    assert(system.supplyQuantity("WATER") == 500);
+    assert(system.allocateSupply(activeMedicalIncident, "WATER", 15, message));
+    assert(system.supplyQuantity("WATER") == 485);
+
+    // Leave one additional incident queued so FIFO reconstruction can be verified.
     const std::string restartQueuedIncident = system.createIncident(
         userId, IncidentType::Medical, "LOC-017", 3, 3, 1, "Restart persistence check");
     assert(!restartQueuedIncident.empty());
@@ -195,10 +208,17 @@ int main() {
         assert(closed != nullptr);
         assert(closed->status == IncidentStatus::Closed);
 
+        const Incident* active = restarted.findIncident(activeMedicalIncident);
+        assert(active != nullptr);
+        assert(active->status == IncidentStatus::EnRoute);
+        assert(restarted.responderAvailableStrength("AMB-UNIT-04") == 0);
+        assert(restarted.supplyQuantity("WATER") == 485);
+
         const Incident* queued = restarted.findIncident(restartQueuedIncident);
         assert(queued != nullptr);
         assert(queued->status == IncidentStatus::Queued);
         assert(restarted.pendingIntakeCount() >= 1);
+        assert(restarted.isReadyForAnalysis(fireIncidentB));
     }
 
     // Multiple road block + LIFO undo.
