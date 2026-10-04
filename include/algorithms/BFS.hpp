@@ -6,6 +6,7 @@
 
 namespace crisismesh {
 
+// DSA Algorithm: Breadth-First Search using the manual Queue and a visited array.
 class BFS {
 public:
     static DynamicArray<int> traverse(const Graph& graph, int start) {
