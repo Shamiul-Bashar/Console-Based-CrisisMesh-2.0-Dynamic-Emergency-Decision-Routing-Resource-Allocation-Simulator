@@ -187,6 +187,10 @@ void registerUser(CrisisMeshSystem& system) {
     user.username = readLine("Username: ");
     user.password = readPassword("Password: ");
 
+    if (user.name.empty() || user.username.empty()) {
+        std::cout << "Name and username cannot be empty.\n";
+        return;
+    }
     if (!AuthService::validEmail(user.email)) {
         std::cout << "Invalid email format.\n";
         return;
@@ -208,6 +212,10 @@ void registerUser(CrisisMeshSystem& system) {
 void forgotPassword(CrisisMeshSystem& system) {
     std::cout << "\n========== RESET PASSWORD ==========\n";
     const std::string username = readLine("Username: ");
+    if (!system.usernameExists(username)) {
+        std::cout << "Username not found.\n";
+        return;
+    }
     if (!simulatedOtpVerification("PASSWORD RESET")) {
         std::cout << "Verification failed.\n";
         return;
