@@ -93,11 +93,14 @@ int main() {
         std::string deleteMessage;
         assert(thirdRun.deleteUserAccount(persistentUserId, "New456", deleteMessage));
         assert(!thirdRun.usernameExists("persistent"));
+        assert(thirdRun.hasRetainedUserData(persistentUserId));
     }
 
     {
         CrisisMeshSystem fourthRun(persistenceFile, persistenceIncidents, persistenceHistory);
         assert(!fourthRun.usernameExists("persistent"));
+        assert(fourthRun.hasUserHistory(persistentUserId));
+        assert(fourthRun.hasRetainedUserData(persistentUserId));
         User nextUser = persistentUser;
         nextUser.username = "nextuser";
         nextUser.email = "next@example.com";
