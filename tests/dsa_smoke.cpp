@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <filesystem>
 #include <string>
 
 using namespace crisismesh;
@@ -54,7 +55,53 @@ int main() {
     assert(distanceRoute.reachable);
     assert(distanceRoute.distance <= weightedRoute.distance + 1e-9);
 
-    CrisisMeshSystem system;
+    const std::string testDir = "test_runtime_data";
+    const std::string persistenceFile = testDir + "/users_persistence.txt";
+    const std::string workflowFile = testDir + "/users_workflow.txt";
+    std::filesystem::remove_all(testDir);
+
+    // Persistent user-account lifecycle.
+    User persistentUser;
+    persistentUser.name = "Persistent User";
+    persistentUser.email = "persistent@example.com";
+    persistentUser.phone = "111";
+    persistentUser.username = "persistent";
+    persistentUser.password = "Keep123";
+
+    int persistentUserId = -1;
+    {
+        CrisisMeshSystem firstRun(persistenceFile);
+        persistentUserId = firstRun.registerUser(persistentUser);
+        assert(persistentUserId == 1);
+        assert(firstRun.authenticateUser("persistent", "Keep123") == persistentUserId);
+        assert(std::filesystem::exists(persistenceFile));
+    }
+
+    {
+        CrisisMeshSystem secondRun(persistenceFile);
+        assert(secondRun.authenticateUser("persistent", "Keep123") == persistentUserId);
+        assert(secondRun.resetPassword("persistent", "New456"));
+    }
+
+    {
+        CrisisMeshSystem thirdRun(persistenceFile);
+        assert(thirdRun.authenticateUser("persistent", "New456") == persistentUserId);
+        std::string deleteMessage;
+        assert(thirdRun.deleteUserAccount(persistentUserId, "New456", deleteMessage));
+        assert(!thirdRun.usernameExists("persistent"));
+    }
+
+    {
+        CrisisMeshSystem fourthRun(persistenceFile);
+        assert(!fourthRun.usernameExists("persistent"));
+        User nextUser = persistentUser;
+        nextUser.username = "nextuser";
+        nextUser.email = "next@example.com";
+        nextUser.password = "Next123";
+        assert(fourthRun.registerUser(nextUser) == 2); // Deleted IDs are not reused.
+    }
+
+    CrisisMeshSystem system(workflowFile);
     User user;
     user.name = "Test User";
     user.email = "test@example.com";
@@ -77,6 +124,7 @@ int main() {
     assert(!policeIncidentA.empty());
 
     std::string message;
+    assert(!system.deleteUserAccount(userId, "Test123", message)); // Active emergency protects account integrity.
     assert(system.processNextIntake(message));
     assert(system.isReadyForAnalysis(policeIncidentA));
     assert(system.highestReadyIncidentId() == policeIncidentA);
@@ -136,5 +184,6 @@ int main() {
     assert(system.undoRoadBlock(message));
     assert(!system.graph().edge(system.graph().findEdgeIndex("R-001")).blocked);
 
+    std::filesystem::remove_all(testDir);
     return 0;
 }
