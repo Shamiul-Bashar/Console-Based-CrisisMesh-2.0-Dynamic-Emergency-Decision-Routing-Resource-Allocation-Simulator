@@ -50,6 +50,7 @@ class CrisisMeshSystem {
     int nextIncidentNumber_{201};
     int nextMessageId_{1};
     int nextUserId_{1};
+    std::string userDataPath_{UserStorage::defaultPath()};
 
     Responder* responderById(const std::string& id) {
         for (std::size_t i = 0; i < responders_.size(); ++i)
@@ -96,7 +97,7 @@ class CrisisMeshSystem {
     }
 
     bool saveUsers() const {
-        return UserStorage::save(users_, nextUserId_);
+        return UserStorage::save(users_, nextUserId_, userDataPath_);
     }
 
     bool hasOpenIncidentsForUser(int userId) const {
@@ -179,13 +180,15 @@ class CrisisMeshSystem {
     }
 
 public:
-    CrisisMeshSystem() {
+    explicit CrisisMeshSystem(const std::string& userDataPath = UserStorage::defaultPath())
+        : userDataPath_(userDataPath) {
         graph_.seedCrisisMeshCity();
         seedOperationalData();
-        UserStorage::load(users_, nextUserId_);
+        UserStorage::load(users_, nextUserId_, userDataPath_);
         rebuildUsernameIndex();
     }
     const Graph& graph() const { return graph_; }
+    const std::string& userDataPath() const { return userDataPath_; }
 
     int registerUser(const User& input) {
         if (input.name.empty() || input.username.empty() || input.email.empty()) return -1;
