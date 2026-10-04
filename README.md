@@ -815,7 +815,8 @@ flowchart LR
 - `data/user_history.txt` records timestamp, actor, action, incident ID, and a
   short explanation. The User Portal shows this under **My History & Activity Log**.
 - The Author can inspect an individual User's retained activity through
-  **User Directory → View User Persistent History**.
+  **User Directory → View User Persistent History**. The lookup also recognizes
+  retained incident records, which keeps older/deleted-user history discoverable.
 - User IDs are monotonic; deleted IDs are not reused.
 - Account deletion removes login credentials but retains historical incident and
   audit records. An account with an active emergency still cannot be deleted.
@@ -848,16 +849,16 @@ The same table style is reused for closed incident history. Because incident sna
 The User Portal exposes all configured response contacts in one fixed-width table:
 
 ~~~text
-No.  Response Unit      Type             Location    Facility                           Hotline
---------------------------------------------------------------------------------------------------
-1    FIRE-UNIT-01       FIRE TRUCK       LOC-003     Main Fire Station                  201
+No.  Response Unit      Type             Current     Base Facility                     Hotline   Status
+--------------------------------------------------------------------------------------------------------------------
+1    FIRE-UNIT-01       FIRE TRUCK       LOC-003     Main Fire Station                 201       AVAILABLE
 ...
-12   RESCUE-UNIT-02     RESCUE TEAM      LOC-013     Shelter B Rescue Base              502
---------------------------------------------------------------------------------------------------
-Total Emergency Contacts: 12 | Hotline format: 3-digit simulation numbers
+12   RESCUE-UNIT-02     RESCUE TEAM      LOC-013     Shelter B Rescue Base             502       AVAILABLE
+--------------------------------------------------------------------------------------------------------------------
+Total Contacts: 12 | Hotline: 3-digit simulation number | Current = responder's live location
 ~~~
 
-The wider Facility column prevents long names from breaking alignment, and the 3-digit hotline values are explicitly simulation contacts.
+The directory uses bounded fixed-width columns, clips unexpectedly long labels instead of breaking alignment, shows each responder's live location, and includes the current operational status. The 3-digit hotline values are simulation contacts only.
 
 ---
 

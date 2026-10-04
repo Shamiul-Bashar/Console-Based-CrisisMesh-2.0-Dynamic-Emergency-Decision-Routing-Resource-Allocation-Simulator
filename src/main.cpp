@@ -19,6 +19,11 @@ using namespace crisismesh;
 
 namespace {
 
+// =============================================================================
+// CONSOLE INPUT & VALIDATION HELPERS
+// =============================================================================
+// Centralized input helpers keep every menu consistent and prevent bad console
+// input from leaking into the operational logic.
 int readInt(const std::string& prompt, int minValue, int maxValue) {
     while (true) {
         std::cout << prompt;
@@ -101,11 +106,15 @@ std::string normalizeId(const std::string& raw, const std::string& prefix) {
     std::string value = upperCopy(raw);
     if (value == "0") return "0";
     if (value.rfind(prefix, 0) == 0) return value;
+
+    // Avoid integer conversion here. Extremely long numeric input should fail
+    // normal ID lookup gracefully instead of risking std::stoi out_of_range.
     if (allDigits(value)) {
-        std::ostringstream out;
-        out << prefix << std::setw(3) << std::setfill('0') << std::stoi(value);
-        return out.str();
+        if (value.size() < 3)
+            value = std::string(3 - value.size(), '0') + value;
+        return prefix + value;
     }
+
     return value;
 }
 
@@ -121,6 +130,9 @@ std::string readIncidentId(const std::string& prompt) {
     return normalizeId(readLine(prompt), "INC-");
 }
 
+// =============================================================================
+// CITY GRAPH & MENU SELECTION HELPERS
+// =============================================================================
 void showCityGraph(const CrisisMeshSystem& system) {
     std::cout << "\n================ CITY GRAPH (20 NODES) ================\n"
               << " LOC-001 ----- LOC-002 ----- LOC-003 ----- LOC-004 ----- LOC-005\n"
@@ -170,6 +182,9 @@ std::string chooseShelterId() {
     return choice == 1 ? "SHELTER-01" : "SHELTER-02";
 }
 
+// =============================================================================
+// AUTHENTICATION & VERIFICATION FLOW
+// =============================================================================
 bool simulatedOtpVerification(const std::string& purpose) {
     const int otp = AuthService::generateOtp();
     std::cout << "\n========== " << purpose << " VERIFICATION ==========\n"
@@ -235,6 +250,9 @@ void forgotPassword(CrisisMeshSystem& system) {
                   : "Password reset failed. Please check persistent storage permissions.\n");
 }
 
+// =============================================================================
+// USER EMERGENCY REPORTING FLOW
+// =============================================================================
 void reportIncident(CrisisMeshSystem& system, int userId) {
     std::cout << "\n========== REPORT EMERGENCY ==========\n";
     showCityGraph(system);
@@ -250,6 +268,9 @@ void reportIncident(CrisisMeshSystem& system, int userId) {
     else std::cout << "Emergency reported successfully. Incident ID: " << id << "\n";
 }
 
+// =============================================================================
+// USER PORTAL
+// =============================================================================
 void userPortal(CrisisMeshSystem& system, int userId) {
     while (true) {
         const User* user = system.getUser(userId);
@@ -349,6 +370,9 @@ void userPortal(CrisisMeshSystem& system, int userId) {
     }
 }
 
+// =============================================================================
+// USER ACCESS ENTRY (REGISTER / LOGIN / RESET)
+// =============================================================================
 void userEntry(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n========== USER ACCESS ==========\n"
@@ -371,6 +395,9 @@ void userEntry(CrisisMeshSystem& system) {
     }
 }
 
+// =============================================================================
+// AUTHOR AUTHENTICATION
+// =============================================================================
 bool authorLogin() {
     std::cout << "\n========== AUTHOR LOGIN ==========\n";
     const std::string username = readLine("Username: ");
@@ -386,6 +413,9 @@ bool authorLogin() {
     return true;
 }
 
+// =============================================================================
+// AUTHOR OPERATIONS: INCIDENT & DISPATCH CENTERS
+// =============================================================================
 void incidentCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ INCIDENT CENTER ================\n";
@@ -436,6 +466,9 @@ void dispatchCenter(CrisisMeshSystem& system) {
     }
 }
 
+// =============================================================================
+// AUTHOR OPERATIONS: CITY GRAPH, ROUTING & RESOURCE MANAGEMENT
+// =============================================================================
 void cityGraphCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ CITY GRAPH & ROADS ================\n"
@@ -642,6 +675,9 @@ void resourceCenter(CrisisMeshSystem& system) {
     }
 }
 
+// =============================================================================
+// AUTHOR OPERATIONS: USER DIRECTORY & COMMUNICATION
+// =============================================================================
 void userDirectoryCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ USER DIRECTORY ================\n";
@@ -655,8 +691,8 @@ void userDirectoryCenter(CrisisMeshSystem& system) {
         if (choice == 1) continue;
 
         const int userId = readInt("User ID: ", 1, 1000000);
-        if (!system.userExists(userId) && !system.hasUserHistory(userId)) {
-            std::cout << "\nNo registered account or retained history exists for that User ID.\n";
+        if (!system.hasRetainedUserData(userId)) {
+            std::cout << "\nNo registered account, incident record, or retained activity exists for that User ID.\n";
             waitForBack();
             continue;
         }
@@ -697,6 +733,9 @@ void messageCenter(CrisisMeshSystem& system) {
     }
 }
 
+// =============================================================================
+// AUTHOR OPERATIONS: INCIDENT ANALYSIS & DSA-DRIVEN ASSIGNMENT
+// =============================================================================
 void analyzeIncident(CrisisMeshSystem& system, const std::string& incidentId) {
     if (!system.isReadyForAnalysis(incidentId)) {
         std::cout << "\nThis incident is not ready for analysis. Process it in Incident Center first.\n";
@@ -792,6 +831,9 @@ void incidentAnalysisCenter(CrisisMeshSystem& system) {
     }
 }
 
+// =============================================================================
+// ARCHIVE, HISTORY & DSA SUMMARY
+// =============================================================================
 void archiveCenter(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n================ ARCHIVE & HISTORY ================\n";
@@ -822,6 +864,9 @@ void dsaSummaryCenter() {
     waitForBack();
 }
 
+// =============================================================================
+// AUTHOR PORTAL NAVIGATION
+// =============================================================================
 void authorPortal(CrisisMeshSystem& system) {
     while (true) {
         std::cout << "\n---------------- DASHBOARD ----------------\n"
@@ -854,6 +899,9 @@ void authorPortal(CrisisMeshSystem& system) {
 
 } // namespace
 
+// =============================================================================
+// APPLICATION ENTRY POINT
+// =============================================================================
 int main() {
     CrisisMeshSystem system;
 
