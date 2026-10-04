@@ -62,7 +62,7 @@ class CrisisMeshSystem {
 
     const char* responderOperationalStatus(const Responder& responder) const {
         if (responder.availability == ResponderAvailability::Offline) return "OFFLINE";
-        if (responder.availableStrength == 0) return "BUSY";
+        if (responder.availableStrength == 0 || responder.availability == ResponderAvailability::Busy) return "BUSY";
         if (responder.onOperation() > 0) return "PARTIAL";
         return "AVAILABLE";
     }
@@ -242,7 +242,8 @@ public:
         incident.status = IncidentStatus::Prioritized;
         priorityHeap_.push({index, incident.priorityScore, incident.sequence});
         out = "Incident " + incident.id + " processed successfully. Priority: " +
-              std::to_string(incident.priorityScore) + " (moved to Max Heap).";
+              std::to_string(incident.priorityScore) +
+              " (moved to Max Heap and ready for Incident Analysis).";
         return true;
     }
 
@@ -305,7 +306,9 @@ public:
                   << std::setw(20) << "Incident Type" << ": " << toString(incident->type) << '\n'
                   << std::setw(20) << "Incident Location" << ": " << incident->locationId
                   << " - " << graph_.node(incident->locationIndex).name << '\n'
-                  << std::setw(20) << "Priority" << ": " << incident->priorityScore << '\n'
+                  << std::setw(20) << "Priority Score" << ": " << incident->priorityScore << '\n'
+                  << std::setw(20) << "Operational Priority" << ": " << operationalPriorityName(incident->priorityScore) << '\n'
+                  << std::setw(20) << "Severity / Urgency" << ": " << incident->severity << " / " << incident->urgency << '\n'
                   << std::setw(20) << "Response Category" << ": " << responseCategoryName(incident->type) << '\n'
                   << std::setw(20) << "Required Resource" << ": " << incident->requiredResponder << '\n';
 
@@ -406,7 +409,8 @@ public:
                       << (c.reachable ? "REACHABLE" : "UNREACHABLE") << '\n';
 
             if (!best && c.reachable && r.availableStrength > 0 &&
-                r.availability != ResponderAvailability::Offline) {
+                r.availability != ResponderAvailability::Offline &&
+                r.availability != ResponderAvailability::Busy) {
                 best = &candidates[i];
             }
         }
@@ -466,6 +470,10 @@ public:
         }
         if (responder->availability == ResponderAvailability::Offline) {
             out = "Selected responder is OFFLINE.";
+            return false;
+        }
+        if (responder->availability == ResponderAvailability::Busy && responder->onOperation() == 0) {
+            out = "Selected responder is manually marked BUSY.";
             return false;
         }
         if (strength <= 0 || strength > responder->availableStrength) {
