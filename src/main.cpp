@@ -1,9 +1,19 @@
 #include "services/AuthService.hpp"
 #include "services/CrisisMeshSystem.hpp"
 
+#include <cctype>
+#include <iomanip>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <string>
+
+#ifdef _WIN32
+#include <conio.h>
+#else
+#include <termios.h>
+#include <unistd.h>
+#endif
 
 using namespace crisismesh;
 
@@ -30,8 +40,85 @@ std::string readLine(const std::string& prompt) {
     return value;
 }
 
+std::string readPassword(const std::string& prompt) {
+    std::cout << prompt << std::flush;
+    std::string password;
+#ifdef _WIN32
+    while (true) {
+        int ch = _getch();
+        if (ch == '\r' || ch == '\n') {
+            std::cout << '\n';
+            break;
+        }
+        if (ch == 8) {
+            if (!password.empty()) {
+                password.pop_back();
+                std::cout << "\b \b" << std::flush;
+            }
+            continue;
+        }
+        if (ch == 0 || ch == 224) {
+            _getch();
+            continue;
+        }
+        if (std::isprint(static_cast<unsigned char>(ch))) {
+            password.push_back(static_cast<char>(ch));
+            std::cout << '*' << std::flush;
+        }
+    }
+#else
+    termios oldState{};
+    if (tcgetattr(STDIN_FILENO, &oldState) == 0) {
+        termios hidden = oldState;
+        hidden.c_lflag &= ~ECHO;
+        tcsetattr(STDIN_FILENO, TCSANOW, &hidden);
+        std::getline(std::cin, password);
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldState);
+        std::cout << std::string(password.size(), '*') << '\n';
+    } else {
+        std::getline(std::cin, password);
+    }
+#endif
+    return password;
+}
+
 void waitForBack() {
     readInt("\nPress 0 to go back: ", 0, 0);
+}
+
+std::string upperCopy(std::string value) {
+    for (char& c : value) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return value;
+}
+
+bool allDigits(const std::string& value) {
+    if (value.empty()) return false;
+    for (char c : value) if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    return true;
+}
+
+std::string normalizeId(const std::string& raw, const std::string& prefix) {
+    std::string value = upperCopy(raw);
+    if (value == "0") return "0";
+    if (value.rfind(prefix, 0) == 0) return value;
+    if (allDigits(value)) {
+        std::ostringstream out;
+        out << prefix << std::setw(3) << std::setfill('0') << std::stoi(value);
+        return out.str();
+    }
+    return value;
+}
+
+std::string readLocationId(const std::string& prompt) {
+    return normalizeId(readLine(prompt), "LOC-");
+}
+
+std::string readRoadId(const std::string& prompt) {
+    return normalizeId(readLine(prompt), "R-");
+}
+
+std::string readIncidentId(const std::string& prompt) {
+    return normalizeId(readLine(prompt), "INC-");
 }
 
 void showCityGraph(const CrisisMeshSystem& system) {
@@ -44,13 +131,13 @@ void showCityGraph(const CrisisMeshSystem& system) {
               << "    |             |             |             |             |\n"
               << " LOC-016 ----- LOC-017 ----- LOC-018 ----- LOC-019 ----- LOC-020\n"
               << "=========================================================\n"
-              << "Nodes: " << system.graph().nodeCount() << " | Roads: " << system.graph().edgeCount() << "\n"
-              << "User and Author portals use the same location IDs and names.\n";
+              << "Nodes: " << system.graph().nodeCount() << " | Roads: " << system.graph().edgeCount() << "\n";
 }
 
 IncidentType chooseIncidentType() {
-    std::cout << "\n1. Medical\n2. Fire\n3. Police\n4. Rescue\n5. Accident\n6. Flood\n7. Structural\n";
-    switch (readInt("Type: ", 1, 7)) {
+    std::cout << "\nSelect Incident Type\n"
+              << "1. Medical\n2. Fire\n3. Police\n4. Rescue\n5. Accident\n6. Flood\n7. Structural\n";
+    switch (readInt("Select: ", 1, 7)) {
         case 1: return IncidentType::Medical;
         case 2: return IncidentType::Fire;
         case 3: return IncidentType::Police;
@@ -61,11 +148,33 @@ IncidentType chooseIncidentType() {
     }
 }
 
+std::string chooseResourceType() {
+    std::cout << "\nSelect Resource Type\n"
+              << "1. Water\n"
+              << "2. Food Pack\n"
+              << "3. Medical Kit\n"
+              << "4. Rescue Kit\n"
+              << "0. Back\n";
+    const int choice = readInt("Select: ", 0, 4);
+    if (choice == 0) return "";
+    if (choice == 1) return "WATER";
+    if (choice == 2) return "FOOD_PACK";
+    if (choice == 3) return "MEDICAL_KIT";
+    return "RESCUE_KIT";
+}
+
+std::string chooseShelterId() {
+    std::cout << "\nSelect Shelter\n1. SHELTER-01\n2. SHELTER-02\n0. Back\n";
+    const int choice = readInt("Select: ", 0, 2);
+    if (choice == 0) return "";
+    return choice == 1 ? "SHELTER-01" : "SHELTER-02";
+}
+
 bool simulatedOtpVerification(const std::string& purpose) {
     const int otp = AuthService::generateOtp();
-    std::cout << "\n[SIMULATED OTP - " << purpose << "] " << otp << "\n";
-    std::cout << "Academic console mode: OTP is displayed locally; no email/SMS is sent.\n";
-    const int entered = readInt("Enter OTP: ", 100000, 999999);
+    std::cout << "\n========== " << purpose << " VERIFICATION ==========\n"
+              << "Verification Code: " << otp << "\n";
+    const int entered = readInt("Enter verification code: ", 100000, 999999);
     return entered == otp;
 }
 
@@ -76,18 +185,18 @@ void registerUser(CrisisMeshSystem& system) {
     user.email = readLine("Email: ");
     user.phone = readLine("Phone: ");
     user.username = readLine("Username: ");
-    user.password = readLine("Password (min 6 chars, letter + digit): ");
+    user.password = readPassword("Password: ");
 
     if (!AuthService::validEmail(user.email)) {
         std::cout << "Invalid email format.\n";
         return;
     }
     if (!AuthService::validPassword(user.password)) {
-        std::cout << "Weak password. Use at least 6 characters with a letter and a digit.\n";
+        std::cout << "Password must contain at least 6 characters with a letter and a digit.\n";
         return;
     }
-    if (!simulatedOtpVerification("USER REGISTRATION")) {
-        std::cout << "OTP verification failed. Registration cancelled.\n";
+    if (!simulatedOtpVerification("REGISTRATION")) {
+        std::cout << "Verification failed. Registration cancelled.\n";
         return;
     }
 
@@ -100,12 +209,12 @@ void forgotPassword(CrisisMeshSystem& system) {
     std::cout << "\n========== RESET PASSWORD ==========\n";
     const std::string username = readLine("Username: ");
     if (!simulatedOtpVerification("PASSWORD RESET")) {
-        std::cout << "OTP verification failed.\n";
+        std::cout << "Verification failed.\n";
         return;
     }
-    const std::string password = readLine("New password: ");
+    const std::string password = readPassword("New password: ");
     if (!AuthService::validPassword(password)) {
-        std::cout << "Weak password.\n";
+        std::cout << "Password must contain at least 6 characters with a letter and a digit.\n";
         return;
     }
     std::cout << (system.resetPassword(username, password) ? "Password reset successful.\n" : "Username not found.\n");
@@ -116,14 +225,14 @@ void reportIncident(CrisisMeshSystem& system, int userId) {
     showCityGraph(system);
     system.listLocations();
     const IncidentType type = chooseIncidentType();
-    const std::string location = readLine("Location ID (example LOC-014): ");
+    const std::string location = readLocationId("Location ID (example LOC-014 or 014): ");
     const int severity = readInt("Severity (1-5): ", 1, 5);
     const int urgency = readInt("Urgency (1-5): ", 1, 5);
     const int victims = readInt("Victim count (0-999): ", 0, 999);
     const std::string description = readLine("Short description: ");
     const std::string id = system.createIncident(userId, type, location, severity, urgency, victims, description);
-    if (id.empty()) std::cout << "Could not create incident. Check location/inputs.\n";
-    else std::cout << "Emergency reported successfully as " << id << ". It is now in the FIFO intake Queue.\n";
+    if (id.empty()) std::cout << "Could not create incident. Check the location and input values.\n";
+    else std::cout << "Emergency reported successfully. Incident ID: " << id << "\n";
 }
 
 void userPortal(CrisisMeshSystem& system, int userId) {
@@ -152,11 +261,11 @@ void userPortal(CrisisMeshSystem& system, int userId) {
         } else if (choice == 3) {
             std::cout << "\n========== RESOLUTION CONFIRMATION ==========\n";
             system.showUserIncidents(userId);
-            const std::string id = readLine("Incident ID: ");
+            const std::string id = readIncidentId("Incident ID (example INC-201): ");
             std::cout << "1. YES - Problem solved\n2. NO - Still need help\n";
-            const bool solved = readInt("Choice: ", 1, 2) == 1;
+            const bool solved = readInt("Select: ", 1, 2) == 1;
             std::string reason;
-            if (!solved) reason = readLine("Escalation reason: ");
+            if (!solved) reason = readLine("Reason: ");
             std::string message;
             system.confirmResolution(userId, id, solved, reason, message);
             std::cout << message << '\n';
@@ -172,8 +281,11 @@ void userPortal(CrisisMeshSystem& system, int userId) {
         } else if (choice == 6) {
             std::cout << "\n========== MY PROFILE ==========\n";
             if (user) {
-                std::cout << "ID: " << user->id << "\nName: " << user->name << "\nEmail: " << user->email
-                          << "\nPhone: " << user->phone << "\nUsername: " << user->username << "\n";
+                std::cout << std::left << std::setw(12) << "User ID" << ": " << user->id
+                          << "\n" << std::setw(12) << "Name" << ": " << user->name
+                          << "\n" << std::setw(12) << "Email" << ": " << user->email
+                          << "\n" << std::setw(12) << "Phone" << ": " << user->phone
+                          << "\n" << std::setw(12) << "Username" << ": " << user->username << "\n";
             }
             waitForBack();
         } else if (choice == 7) {
@@ -195,7 +307,7 @@ void userEntry(CrisisMeshSystem& system) {
         else if (choice == 3) forgotPassword(system);
         else {
             const std::string username = readLine("Username: ");
-            const std::string password = readLine("Password: ");
+            const std::string password = readPassword("Password: ");
             const int userId = system.authenticateUser(username, password);
             if (userId < 0) std::cout << "Invalid username or password.\n";
             else userPortal(system, userId);
@@ -206,13 +318,13 @@ void userEntry(CrisisMeshSystem& system) {
 bool authorLogin() {
     std::cout << "\n========== AUTHOR LOGIN ==========\n";
     const std::string username = readLine("Username: ");
-    const std::string password = readLine("Password: ");
+    const std::string password = readPassword("Password: ");
     if (username != "author" || password != "Crisis@2026") {
         std::cout << "Invalid Author credentials.\n";
         return false;
     }
     if (!simulatedOtpVerification("AUTHOR LOGIN")) {
-        std::cout << "OTP verification failed.\n";
+        std::cout << "Verification failed.\n";
         return false;
     }
     return true;
@@ -220,73 +332,101 @@ bool authorLogin() {
 
 void incidentCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== INCIDENT CENTER ==========\n";
+        std::cout << "\n================ INCIDENT CENTER ================\n";
         system.showAllIncidents();
-        std::cout << "\n1. Process Next FIFO Intake\n"
+        std::cout << "\nPending in FIFO Queue: " << system.pendingIntakeCount() << "\n"
+                  << "1. Process Next Pending Incident (FIFO)\n"
                   << "2. Search Incident\n"
                   << "3. Mark Field Response Completed\n"
                   << "0. Back\n";
         const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) return;
+
         std::string message;
         if (choice == 1) {
             system.processNextIntake(message);
-            std::cout << message << '\n';
+            std::cout << "\n" << message << '\n';
         } else if (choice == 2) {
-            system.showIncidentDetails(readLine("Incident ID: "));
+            const std::string id = readIncidentId("Incident ID (example INC-201 or 201): ");
+            if (id != "0") system.showIncidentDetails(id);
+            waitForBack();
         } else {
-            system.markResponseCompleted(readLine("Incident ID: "), message);
-            std::cout << message << '\n';
+            const std::string id = readIncidentId("Incident ID (example INC-201 or 201): ");
+            if (id != "0") {
+                system.markResponseCompleted(id, message);
+                std::cout << "\n" << message << '\n';
+            }
+            waitForBack();
         }
     }
 }
 
 void dispatchCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== DISPATCH CENTER ==========\n"
+        std::cout << "\n================ DISPATCH CENTER ================\n"
                   << "1. Dispatch Highest Priority Incident\n"
-                  << "2. View Responders\n"
+                  << "2. View Responders / Resources\n"
                   << "0. Back\n";
         const int choice = readInt("Select: ", 0, 2);
         if (choice == 0) return;
         if (choice == 1) {
             std::string message;
             system.dispatchHighest(message);
-            std::cout << message << '\n';
+            std::cout << "\n" << message << '\n';
+            waitForBack();
         } else {
             system.showRespondersAndResources();
+            waitForBack();
         }
     }
 }
 
 void cityGraphCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== CITY GRAPH & ROADS ==========\n";
-        showCityGraph(system);
-        std::cout << "\n1. View Location Names\n"
-                  << "2. View Road Details\n"
+        std::cout << "\n================ CITY GRAPH & ROADS ================\n"
+                  << "1. View City Graph & Locations\n"
+                  << "2. View Road Network\n"
                   << "3. Block Road + Auto Reroute\n"
-                  << "4. Undo Last Road Block\n"
+                  << "4. View Blocked Roads\n"
+                  << "5. Undo Last Road Block\n"
                   << "0. Back\n";
-        const int choice = readInt("Select: ", 0, 4);
+        const int choice = readInt("Select: ", 0, 5);
         if (choice == 0) return;
-        std::string message;
-        if (choice == 1) system.listLocations();
-        else if (choice == 2) system.showRoads();
-        else if (choice == 3) {
+
+        if (choice == 1) {
+            showCityGraph(system);
+            system.listLocations();
+            waitForBack();
+        } else if (choice == 2) {
             system.showRoads();
-            system.blockRoad(readLine("Road ID (example R-001): "), message);
-            std::cout << message << '\n';
+            waitForBack();
+        } else if (choice == 3) {
+            std::cout << "\n========== BLOCK ROAD & AUTO REROUTE ==========\n";
+            system.showRoads();
+            const std::string roadId = readRoadId("\nRoad ID to block (R-001 or 001, 0 to cancel): ");
+            if (roadId != "0") {
+                std::string message;
+                system.blockRoad(roadId, message);
+                std::cout << "\n" << message << '\n';
+            }
+            waitForBack();
+        } else if (choice == 4) {
+            system.showBlockedRoads();
+            waitForBack();
         } else {
+            std::cout << "\n========== UNDO LAST ROAD BLOCK ==========\n";
+            std::string message;
             system.undoLastRoadBlock(message);
             std::cout << message << '\n';
+            system.showBlockedRoads();
+            waitForBack();
         }
     }
 }
 
 void routeSearchCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== ROUTE & LOCATION SEARCH ==========\n"
+        std::cout << "\n================ ROUTE & LOCATION SEARCH ================\n"
                   << "1. Dijkstra Shortest Route\n"
                   << "2. Binary Search Location\n"
                   << "3. View Locations\n"
@@ -294,50 +434,162 @@ void routeSearchCenter(CrisisMeshSystem& system) {
         const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) return;
         if (choice == 1) {
-            const std::string from = readLine("From location ID: ");
-            const std::string to = readLine("To location ID: ");
+            system.listLocations();
+            const std::string from = readLocationId("From location (LOC-001 or 001): ");
+            const std::string to = readLocationId("To location (LOC-002 or 002): ");
             system.runDijkstra(from, to);
+            waitForBack();
         } else if (choice == 2) {
-            const std::string id = readLine("Location ID: ");
+            system.listLocations();
+            const std::string id = readLocationId("Location ID (LOC-001 or 001): ");
             const int index = system.findLocationBinary(id);
-            if (index < 0) std::cout << "Location not found.\n";
-            else std::cout << "Found: " << system.graph().node(index).id << " | "
+            if (index < 0) std::cout << "\nLocation not found.\n";
+            else std::cout << "\nFound: " << system.graph().node(index).id << " - "
                            << system.graph().node(index).name << "\n";
+            waitForBack();
         } else {
             system.listLocations();
+            waitForBack();
         }
     }
 }
 
-void resourceCenter(CrisisMeshSystem& system) {
+void manageResponders(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== RESPONDERS & RESOURCES ==========\n"
-                  << "1. View Responders / Shelters / Supplies\n"
-                  << "2. Allocate Shelter\n"
-                  << "3. Allocate Supplies\n"
+        std::cout << "\n================ MANAGE RESPONDERS ================\n";
+        system.showRespondersAndResources();
+        std::cout << "\n1. Update Responder Status\n"
+                  << "2. Update Responder Location\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 2);
+        if (choice == 0) return;
+        const std::string id = upperCopy(readLine("Responder ID: "));
+        std::string message;
+        if (choice == 1) {
+            std::cout << "\n1. AVAILABLE\n2. BUSY\n3. OFFLINE\n0. Cancel\n";
+            const int status = readInt("Select status: ", 0, 3);
+            if (status == 0) continue;
+            ResponderAvailability value = ResponderAvailability::Available;
+            if (status == 2) value = ResponderAvailability::Busy;
+            if (status == 3) value = ResponderAvailability::Offline;
+            system.updateResponderStatus(id, value, message);
+        } else {
+            system.listLocations();
+            const std::string location = readLocationId("New location (LOC-001 or 001): ");
+            system.updateResponderLocation(id, location, message);
+        }
+        std::cout << "\n" << message << '\n';
+        waitForBack();
+    }
+}
+
+void manageShelters(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n================ MANAGE SHELTERS ================\n";
+        system.showRespondersAndResources();
+        std::cout << "\n1. Update Capacity\n"
+                  << "2. Update Occupancy\n"
+                  << "3. Change Operational Status\n"
                   << "0. Back\n";
         const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) return;
+        const std::string shelterId = chooseShelterId();
+        if (shelterId.empty()) continue;
+        std::string message;
+        if (choice == 1) {
+            system.updateShelterCapacity(shelterId, readInt("New capacity: ", 0, 100000), message);
+        } else if (choice == 2) {
+            system.updateShelterOccupancy(shelterId, readInt("New occupancy: ", 0, 100000), message);
+        } else {
+            std::cout << "1. ACTIVE\n2. CLOSED\n";
+            system.updateShelterOperational(shelterId, readInt("Select status: ", 1, 2) == 1, message);
+        }
+        std::cout << "\n" << message << '\n';
+        waitForBack();
+    }
+}
+
+void manageSupplies(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n================ MANAGE SUPPLIES ================\n";
+        system.showRespondersAndResources();
+        std::cout << "\n1. Set Quantity\n"
+                  << "2. Add Stock\n"
+                  << "3. Remove Stock\n"
+                  << "4. Update Resource Location\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 4);
+        if (choice == 0) return;
+        const std::string type = chooseResourceType();
+        if (type.empty()) continue;
+        std::string message;
+        if (choice == 1) {
+            system.setSupplyQuantity(type, readInt("New quantity: ", 0, 1000000), message);
+        } else if (choice == 2) {
+            system.adjustSupply(type, readInt("Quantity to add: ", 1, 1000000), message);
+        } else if (choice == 3) {
+            system.adjustSupply(type, -readInt("Quantity to remove: ", 1, 1000000), message);
+        } else {
+            system.updateSupplySource(type, readLine("New resource location: "), message);
+        }
+        std::cout << "\n" << message << '\n';
+        waitForBack();
+    }
+}
+
+void allocateShelterScreen(CrisisMeshSystem& system) {
+    std::cout << "\n================ ALLOCATE SHELTER ================\n";
+    system.showOperationalIncidents();
+    const std::string id = readIncidentId("\nIncident ID (INC-201 or 201, 0 to cancel): ");
+    if (id == "0") return;
+    std::string message;
+    system.allocateShelter(id, message);
+    std::cout << "\n" << message << '\n';
+    waitForBack();
+}
+
+void allocateSupplyScreen(CrisisMeshSystem& system) {
+    std::cout << "\n================ ALLOCATE SUPPLIES ================\n";
+    system.showOperationalIncidents();
+    const std::string id = readIncidentId("\nIncident ID (INC-201 or 201, 0 to cancel): ");
+    if (id == "0") return;
+    const std::string type = chooseResourceType();
+    if (type.empty()) return;
+    const int available = system.supplyQuantity(type);
+    std::cout << "Available Quantity: " << available << '\n';
+    const int qty = readInt("Quantity to allocate: ", 1, 1000000);
+    std::string message;
+    system.allocateSupply(id, type, qty, message);
+    std::cout << "\n" << message << '\n';
+    waitForBack();
+}
+
+void resourceCenter(CrisisMeshSystem& system) {
+    while (true) {
+        std::cout << "\n================ RESPONDERS & RESOURCES ================\n"
+                  << "1. View All Resources\n"
+                  << "2. Manage Responders\n"
+                  << "3. Manage Shelters\n"
+                  << "4. Manage Supplies\n"
+                  << "5. Allocate Shelter\n"
+                  << "6. Allocate Supplies\n"
+                  << "0. Back\n";
+        const int choice = readInt("Select: ", 0, 6);
+        if (choice == 0) return;
         if (choice == 1) {
             system.showRespondersAndResources();
-        } else if (choice == 2) {
-            std::string message;
-            system.allocateShelter(readLine("Incident ID: "), message);
-            std::cout << message << '\n';
-        } else {
-            const std::string id = readLine("Incident ID: ");
-            const std::string type = readLine("Resource type (WATER/FOOD_PACK/MEDICAL_KIT/RESCUE_KIT): ");
-            const int qty = readInt("Quantity: ", 1, 10000);
-            std::string message;
-            system.allocateSupply(id, type, qty, message);
-            std::cout << message << '\n';
-        }
+            waitForBack();
+        } else if (choice == 2) manageResponders(system);
+        else if (choice == 3) manageShelters(system);
+        else if (choice == 4) manageSupplies(system);
+        else if (choice == 5) allocateShelterScreen(system);
+        else allocateSupplyScreen(system);
     }
 }
 
 void userDirectoryCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== USER DIRECTORY ==========\n";
+        std::cout << "\n================ USER DIRECTORY ================\n";
         system.listUsers();
         std::cout << "\n1. Refresh User List\n0. Back\n";
         const int choice = readInt("Select: ", 0, 1);
@@ -347,7 +599,7 @@ void userDirectoryCenter(CrisisMeshSystem& system) {
 
 void messageCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== MESSAGE CENTER ==========\n"
+        std::cout << "\n================ MESSAGE CENTER ================\n"
                   << "1. Send Direct Message\n"
                   << "2. Broadcast Message\n"
                   << "0. Back\n";
@@ -357,32 +609,40 @@ void messageCenter(CrisisMeshSystem& system) {
             system.listUsers();
             const int userId = readInt("Recipient User ID: ", 1, 100);
             system.sendMessage(userId, readLine("Message: "));
-            std::cout << "Direct message stored.\n";
+            std::cout << "Message sent successfully.\n";
         } else {
             system.sendMessage(-1, readLine("Broadcast message: "));
-            std::cout << "Broadcast stored for all registered users.\n";
+            std::cout << "Broadcast sent successfully.\n";
         }
     }
 }
 
 void traversalCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== BFS / DFS ANALYSIS ==========\n"
+        std::cout << "\n================ BFS / DFS ANALYSIS ================\n"
                   << "1. Run BFS\n"
                   << "2. Run DFS\n"
                   << "3. View City Graph\n"
                   << "0. Back\n";
         const int choice = readInt("Select: ", 0, 3);
         if (choice == 0) return;
-        if (choice == 1) system.runBfs(readLine("Start location ID: "));
-        else if (choice == 2) system.runDfs(readLine("Start location ID: "));
-        else showCityGraph(system);
+        if (choice == 3) {
+            showCityGraph(system);
+            system.listLocations();
+            waitForBack();
+            continue;
+        }
+        system.listLocations();
+        const std::string start = readLocationId("Start location (LOC-001 or 001): ");
+        if (choice == 1) system.runBfs(start);
+        else system.runDfs(start);
+        waitForBack();
     }
 }
 
 void archiveCenter(CrisisMeshSystem& system) {
     while (true) {
-        std::cout << "\n========== ARCHIVE & HISTORY ==========\n";
+        std::cout << "\n================ ARCHIVE & HISTORY ================\n";
         system.showArchive();
         std::cout << "\n1. Refresh Archive\n0. Back\n";
         const int choice = readInt("Select: ", 0, 1);
@@ -391,18 +651,22 @@ void archiveCenter(CrisisMeshSystem& system) {
 }
 
 void dsaSummaryCenter() {
-    std::cout << "\n========== DSA SUMMARY ==========\n"
-              << "Array       : users, incidents, responders, resources\n"
-              << "Linked List : messages and closed-history records\n"
-              << "Stack       : road-block undo and DFS\n"
-              << "Queue       : FIFO emergency intake and BFS\n"
-              << "AVL Tree    : closed incident archive\n"
-              << "Max Heap    : emergency priority scheduling\n"
-              << "Hash Table  : incident and username lookup\n"
-              << "Merge Sort  : responder ranking\n"
-              << "Binary Search: location lookup\n"
-              << "Graph       : shared 20-node city\n"
-              << "Dijkstra    : shortest emergency route\n";
+    std::cout << "\n========================== DSA SUMMARY ==========================\n"
+              << std::left << std::setw(6) << "No." << std::setw(28) << "Data Structure / Algorithm" << "Used For\n"
+              << std::string(76, '-') << '\n'
+              << std::setw(6) << "1" << std::setw(28) << "Array" << "Users, incidents, responders, resources\n"
+              << std::setw(6) << "2" << std::setw(28) << "Linked List" << "Messages and closed incident history\n"
+              << std::setw(6) << "3" << std::setw(28) << "Stack" << "Road-block undo and DFS traversal\n"
+              << std::setw(6) << "4" << std::setw(28) << "Queue" << "FIFO emergency intake and BFS traversal\n"
+              << std::setw(6) << "5" << std::setw(28) << "AVL Tree" << "Closed incident archive\n"
+              << std::setw(6) << "6" << std::setw(28) << "Max Heap" << "Emergency priority scheduling\n"
+              << std::setw(6) << "7" << std::setw(28) << "Hash Table" << "Incident and username lookup\n"
+              << std::setw(6) << "8" << std::setw(28) << "Merge Sort" << "Responder ranking\n"
+              << std::setw(6) << "9" << std::setw(28) << "Binary Search" << "Location search\n"
+              << std::setw(6) << "10" << std::setw(28) << "Graph" << "Shared 20-node city network\n"
+              << std::setw(6) << "11" << std::setw(28) << "Dijkstra" << "Shortest emergency route\n"
+              << std::string(76, '-') << '\n'
+              << "Total DSA Components: 11\n";
     waitForBack();
 }
 
@@ -444,8 +708,7 @@ int main() {
     std::cout << "\n============================================================\n"
               << "          CRISISMESH 2.0 - CONSOLE EDITION (C++17)\n"
               << " Dynamic Emergency Decision, Routing & Resource Allocation\n"
-              << "============================================================\n"
-              << "Academic simulation only - no real emergency service connection.\n";
+              << "============================================================\n";
 
     while (true) {
         std::cout << "\nMAIN PORTAL\n"
@@ -459,10 +722,7 @@ int main() {
         else if (choice == 2) {
             if (authorLogin()) authorPortal(system);
         } else {
-            std::cout << "\nOperational DSA path:\n"
-                      << "User Report -> Queue -> Max Heap -> responder Array -> Merge Sort -> Dijkstra -> dispatch.\n"
-                      << "Supporting DSA: Stack, Linked List, AVL Tree, Hash Table, Binary Search, BFS and DFS.\n";
-            waitForBack();
+            dsaSummaryCenter();
         }
     }
 
