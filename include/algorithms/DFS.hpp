@@ -6,6 +6,7 @@
 
 namespace crisismesh {
 
+// DSA Algorithm: Depth-First Search using the manual Stack and a visited array.
 class DFS {
 public:
     static DynamicArray<int> traverse(const Graph& graph, int start) {
