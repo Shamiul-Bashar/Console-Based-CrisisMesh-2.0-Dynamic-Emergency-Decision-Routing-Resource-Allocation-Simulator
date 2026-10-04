@@ -17,31 +17,37 @@
 using namespace crisismesh;
 
 int main() {
+    // DSA test: Queue FIFO behavior.
     Queue<int> q;
     q.enqueue(10);
     q.enqueue(20);
     assert(q.dequeue() == 10);
 
+    // DSA test: Stack LIFO behavior.
     Stack<int> s;
     s.push(1);
     s.push(2);
     assert(s.pop() == 2);
 
+    // DSA test: Singly Linked List insertion/traversal behavior.
     LinkedList<std::string> list;
     list.pushBack("A");
     list.pushBack("B");
     assert(list.size() == 2);
 
+    // DSA test: Hash Table insertion and lookup.
     HashTable<int> table;
     table.put("INC-1", 7);
     assert(table.get("INC-1") && *table.get("INC-1") == 7);
 
+    // DSA test: AVL Tree insertion and lookup.
     AVLTree tree;
     tree.insert(3, "C");
     tree.insert(1, "A");
     tree.insert(2, "B");
     assert(tree.find(2) && *tree.find(2) == "B");
 
+    // DSA test: Graph traversal with BFS and DFS.
     Graph g;
     g.seedCrisisMeshCity();
     auto bfs = BFS::traverse(g, 0);
@@ -49,6 +55,7 @@ int main() {
     assert(bfs.size() == 20);
     assert(dfs.size() == 20);
 
+    // DSA test: Dijkstra weighted and shortest-distance routing.
     const auto weightedRoute = Dijkstra::shortestPath(g, 0, 18);
     const auto distanceRoute = Dijkstra::shortestDistancePath(g, 0, 18);
     assert(weightedRoute.reachable);
