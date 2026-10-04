@@ -29,7 +29,7 @@ This file maps the tentative marking distribution directly to executable project
 - **BFS**: `include/algorithms/BFS.hpp`, traverses only open roads.
 - **DFS**: `include/algorithms/DFS.hpp`, traverses only open roads.
 - **Searching**:
-  - manual Binary Search over sorted `LOC-001 ... LOC-024` IDs for location validation/search;
+  - manual Binary Search over sorted `LOC-001 ... LOC-020` IDs for location validation/search;
   - manual separate-chaining Hash Table provides fast incident ID lookup and username lookup.
 
 ## 4) Sorting — 2 marks
@@ -48,7 +48,7 @@ This file maps the tentative marking distribution directly to executable project
 - **Max Heap** schedules the highest-priority triaged incident.
 - **Min Heap** drives Dijkstra.
 - **Hash Table** indexes incidents/users.
-- **Graph** models the 24-node, 42-road city.
+- **Graph** models the 20-node, 31-road city.
 - **Dijkstra** powers dispatch, rerouting, and shelter selection.
 
 ## STL Policy
