@@ -9,7 +9,7 @@
 ![Interface](https://img.shields.io/badge/Interface-Console-0f766e?style=for-the-badge)
 ![City Graph](https://img.shields.io/badge/City_Graph-20_Nodes_%7C_31_Roads-f97316?style=for-the-badge)
 
-[![C++ Build and Tests](https://github.com/Shamiul-Bashar/Console-Based-risisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocation-Simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/Shamiul-Bashar/Console-Based-risisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocation-Simulator/actions/workflows/ci.yml)
+[![C++ Build and Tests](https://github.com/Shamiul-Bashar/Console-Based-CrisisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocation-Simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/Shamiul-Bashar/Console-Based-CrisisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocation-Simulator/actions/workflows/ci.yml)
 
 A **C++17, DSA-driven emergency management simulator** that connects emergency reporting, FIFO intake, priority scheduling, graph analysis, shortest-path routing, manual deployment, rerouting, resource allocation, resolution, and archival into one complete console workflow.
 
@@ -27,6 +27,104 @@ The system contains two operational portals:
 - **Author Portal** — FIFO incident processing, priority scheduling, Incident Analysis, graph traversal, Dijkstra response comparison, manual resource assignment, road control, messaging, shelter/supply allocation, and archival.
 
 The city is deliberately compact: **20 shared locations connected by 31 bidirectional roads**. This is large enough to demonstrate graph algorithms but small enough to inspect and explain during a project showcase or viva.
+
+<div align="center">
+
+### Architecture-first documentation
+
+[System Architecture](#system-architecture--layered-runtime-view) •
+[Emergency Workflow](#end-to-end-emergency-workflow) •
+[Incident Lifecycle](#incident-lifecycle) •
+[Routing Engine](#dijkstra-response-analysis) •
+[DSA Mapping](#dsa-to-feature-mapping) •
+[Persistence](#persistent-data-incident-history--user-audit-trail) •
+[Build & Run](#build--run)
+
+</div>
+
+## Architecture at a Glance
+
+~~~mermaid
+flowchart TB
+    subgraph UI["INTERACTION LAYER"]
+        U["User Portal"]
+        A["Author Portal"]
+        C["Console Navigation<br/>src/main.cpp"]
+        U --> C
+        A --> C
+    end
+
+    subgraph APP["APPLICATION / ORCHESTRATION LAYER"]
+        AUTH["AuthService<br/>validation + console verification"]
+        SYS["CrisisMeshSystem<br/>single operational coordinator"]
+        C --> AUTH
+        C --> SYS
+    end
+
+    subgraph DOMAIN["DOMAIN & RUNTIME STATE"]
+        MODELS["Models<br/>User • Incident • Responder<br/>Shelter • Supply • Message"]
+        Q["FIFO Queue<br/>new incident intake"]
+        MAXH["Max Heap<br/>priority scheduling"]
+        ST["Stack<br/>road-block undo"]
+        LL["Linked Lists<br/>history + messages"]
+        AVL["AVL Tree<br/>closed archive"]
+        HT["Hash Tables<br/>user + incident lookup"]
+        ARR["Static / Dynamic Arrays<br/>entities + route snapshots"]
+        SYS --> MODELS
+        SYS --> Q
+        SYS --> MAXH
+        SYS --> ST
+        SYS --> LL
+        SYS --> AVL
+        SYS --> HT
+        SYS --> ARR
+    end
+
+    subgraph DECISION["ALGORITHM / DECISION LAYER"]
+        BFS["BFS<br/>reachability"]
+        DFS["DFS<br/>depth traversal"]
+        DIJ["Dijkstra + Min Heap<br/>shortest-distance routing"]
+        MS["Merge Sort<br/>candidate / incident ranking"]
+        BS["Binary Search<br/>location lookup"]
+        SYS --> BFS
+        SYS --> DFS
+        SYS --> DIJ
+        SYS --> MS
+        SYS --> BS
+    end
+
+    subgraph CITY["CITY NETWORK"]
+        G["Adjacency-list Graph<br/>20 locations • 31 bidirectional roads"]
+        BFS --> G
+        DFS --> G
+        DIJ --> G
+        BS --> G
+    end
+
+    subgraph STORE["PERSISTENCE & RECOVERY"]
+        USERS["data/users.txt"]
+        INCS["data/incidents.txt"]
+        AUDIT["data/user_history.txt"]
+        RESTORE["Startup rehydration<br/>rebuild Queue / Heap / Hash / History / AVL"]
+        SYS --> USERS
+        SYS --> INCS
+        SYS --> AUDIT
+        USERS --> RESTORE
+        INCS --> RESTORE
+        AUDIT --> RESTORE
+        RESTORE --> SYS
+    end
+
+    subgraph VERIFY["VERIFICATION"]
+        TEST["dsa_smoke + workflow tests"]
+        CI["GitHub Actions<br/>Linux + Windows"]
+        TEST --> CI
+        CI -. validates .-> SYS
+    end
+~~~
+
+The project is intentionally **DSA-first**: application features are not isolated menu actions; they are connected to explicit data structures, graph algorithms, lifecycle transitions, persistence, and recovery logic.
+
 
 ## Project Presentation & Report
 
@@ -97,7 +195,7 @@ The current implementation includes:
 ## Repository Structure
 
 ~~~text
-Console-Based-risisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocation-Simulator/
+Console-Based-CrisisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocation-Simulator/
 │
 ├── .github/
 │   └── workflows/
@@ -159,40 +257,121 @@ Console-Based-risisMesh-2.0-Dynamic-Emergency-Decision-Routing-Resource-Allocati
 
 ---
 
-# High-Level System Architecture
+# System Architecture — Layered Runtime View
 
 ~~~mermaid
 flowchart TB
-    USER["User Portal"]
-    AUTHOR["Author Portal"]
-    MAIN["Console Application<br/>src/main.cpp"]
-    AUTH["AuthService<br/>verification + validation"]
-    SYS["CrisisMeshSystem<br/>Application / Service Layer"]
-    MODEL["Domain Models<br/>User • Incident • Responder<br/>Shelter • Supply • Message"]
-    GRAPH["City Graph<br/>20 Nodes • 31 Roads"]
-    ALG["Algorithm Layer<br/>BFS • DFS • Dijkstra<br/>Binary Search • Merge Sort"]
-    DSA["Manual DSA Layer<br/>Array • Linked List • Stack • Queue<br/>AVL • Max Heap • Min Heap • Hash Table"]
-    TEST["CTest / GitHub Actions<br/>Linux + Windows"]
+    subgraph L1["L1 — Presentation / Console"]
+        MAIN["src/main.cpp"]
+        USER["User Portal"]
+        AUTHOR["Author Portal"]
+        USER --> MAIN
+        AUTHOR --> MAIN
+    end
 
-    USER --> MAIN
-    AUTHOR --> MAIN
-    MAIN --> AUTH
-    MAIN --> SYS
+    subgraph L2["L2 — Application Services"]
+        SYS["CrisisMeshSystem.hpp<br/>orchestration + lifecycle + dispatch"]
+        AUTH["AuthService.hpp<br/>input validation + verification"]
+        USTORE["UserStorage.hpp"]
+        PSTORE["PersistentStorage.hpp"]
+        MAIN --> AUTH
+        MAIN --> SYS
+        SYS --> USTORE
+        SYS --> PSTORE
+    end
 
-    SYS --> MODEL
-    SYS --> GRAPH
-    SYS --> ALG
-    SYS --> DSA
+    subgraph L3["L3 — Domain Model"]
+        M["Models.hpp<br/>Incident / User / Responder / Shelter / Supply"]
+        LIFE["IncidentStatus state model"]
+        SCORE["Priority scoring<br/>severity + urgency + victims + type"]
+        SYS --> M
+        M --> LIFE
+        M --> SCORE
+    end
 
-    ALG --> GRAPH
-    ALG --> DSA
+    subgraph L4["L4 — Manual DSA Runtime"]
+        A1["StaticArray / DynamicArray"]
+        A2["Queue<br/>FIFO intake"]
+        A3["MaxHeap<br/>incident priority"]
+        A4["MinHeap<br/>Dijkstra frontier"]
+        A5["Stack<br/>road undo"]
+        A6["LinkedList<br/>history + messages"]
+        A7["AVLTree<br/>closed archive"]
+        A8["HashTable<br/>fast lookup"]
+        SYS --> A1
+        SYS --> A2
+        SYS --> A3
+        SYS --> A5
+        SYS --> A6
+        SYS --> A7
+        SYS --> A8
+    end
 
-    TEST --> SYS
-    TEST --> ALG
-    TEST --> DSA
+    subgraph L5["L5 — Algorithms"]
+        BFS["BFS"]
+        DFS["DFS"]
+        DIJ["Dijkstra"]
+        MERGE["Merge Sort"]
+        BINARY["Binary Search"]
+        SYS --> BFS
+        SYS --> DFS
+        SYS --> DIJ
+        SYS --> MERGE
+        SYS --> BINARY
+        DIJ --> A4
+    end
+
+    subgraph L6["L6 — Graph / Operational World"]
+        GRAPH["Graph.hpp<br/>Adjacency list"]
+        CITY["20 Nodes"]
+        ROADS["31 Roads<br/>distance • time • risk • congestion • capacity • blocked"]
+        RESP["12 response resources"]
+        SHELTER["2 shelters"]
+        SUPPLY["4 supply pools"]
+        GRAPH --> CITY
+        GRAPH --> ROADS
+        SYS --> RESP
+        SYS --> SHELTER
+        SYS --> SUPPLY
+        BFS --> GRAPH
+        DFS --> GRAPH
+        DIJ --> GRAPH
+        BINARY --> GRAPH
+    end
+
+    subgraph L7["L7 — Durable State"]
+        F1["users.txt"]
+        F2["incidents.txt"]
+        F3["user_history.txt"]
+        USTORE --> F1
+        PSTORE --> F2
+        PSTORE --> F3
+    end
+
+    subgraph L8["L8 — Quality Gate"]
+        CMAKE["CMake"]
+        SMOKE["dsa_smoke"]
+        ACTIONS["GitHub Actions"]
+        CMAKE --> SMOKE --> ACTIONS
+    end
 ~~~
 
-The architecture separates **console interaction**, **application logic**, **domain state**, **graph algorithms**, and **manual DSA implementations**. The portals call the central system layer rather than directly modifying internal structures.
+### Runtime dependency rule
+
+The console layer never needs to manipulate the internal DSA directly. <code>src/main.cpp</code> delegates operations to <code>CrisisMeshSystem</code>; the service layer coordinates the manual data structures and algorithms; the algorithms operate over the shared city graph; storage services persist recoverable state.
+
+### Source-of-truth map
+
+| Concern | Source |
+|---|---|
+| Console menus and interaction | <code>src/main.cpp</code> |
+| Main orchestration and emergency workflow | <code>include/services/CrisisMeshSystem.hpp</code> |
+| Incident states, priority formula, responder mapping | <code>include/models/Models.hpp</code> |
+| Road network | <code>include/graph/Graph.hpp</code> |
+| Dijkstra / BFS / DFS / Merge Sort / Binary Search | <code>include/algorithms/</code> |
+| Manual Array / List / Stack / Queue / Heaps / Hash / AVL | <code>include/dsa/</code> |
+| Durable user / incident / audit state | <code>include/services/UserStorage.hpp</code> + <code>PersistentStorage.hpp</code> |
+| Automated build and regression validation | <code>CMakeLists.txt</code> + <code>.github/workflows/ci.yml</code> |
 
 ---
 
@@ -285,6 +464,122 @@ flowchart TD
 ~~~
 
 This workflow is the core of CrisisMesh. The major stages are backed by visible DSA concepts instead of hidden application behavior.
+
+---
+
+# End-to-End Transaction Sequence
+
+The following sequence shows how a single emergency travels through the major runtime components.
+
+~~~mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant UI as Console UI
+    participant S as CrisisMeshSystem
+    participant Q as FIFO Queue
+    participant H as Max Heap
+    participant G as Graph + Dijkstra
+    participant R as Responder Pool
+    participant P as Persistence
+    actor A as Author
+
+    U->>UI: Report emergency
+    UI->>S: createIncident(...)
+    S->>S: validate location + calculate priority
+    S->>Q: enqueue incident index
+    S->>P: save incident snapshot
+
+    A->>UI: Process next intake
+    UI->>S: processNextIntake()
+    S->>Q: dequeue oldest incident
+    S->>S: TRIAGED → PRIORITIZED
+    S->>H: push(priority, sequence)
+    S->>P: persist updated state
+
+    A->>UI: Open Incident Analysis
+    UI->>S: run Dijkstra analysis
+    S->>R: filter compatible responders
+    loop each compatible responder
+        S->>G: shortestDistancePath(base, incident)
+        G-->>S: reachable + path + distance + time
+    end
+    S-->>UI: ranked response candidates
+
+    A->>UI: Assign responder / strength
+    UI->>S: assignResponse(...)
+    S->>G: validate selected route
+    S->>R: consume available strength
+    S->>P: persist EN_ROUTE assignment
+
+    alt Road becomes blocked
+        A->>UI: Block road
+        UI->>S: blockRoad(...)
+        S->>S: push road index onto Stack
+        S->>G: reroute affected active incidents
+        S->>P: persist rerouted state
+    end
+
+    A->>UI: Mark field response completed
+    UI->>S: markResponseCompleted(...)
+    S->>R: restore response strength
+    S->>P: persist AWAITING_USER_CONFIRMATION
+
+    U->>UI: YES / NO resolution
+    UI->>S: confirmResolution(...)
+
+    alt YES — solved
+        S->>S: append Linked List history
+        S->>S: insert AVL archive record
+        S->>P: persist CLOSED
+    else NO — still needs help
+        S->>S: increase urgency + recalculate priority
+        S->>Q: re-enqueue incident
+        S->>P: persist QUEUED escalation
+    end
+~~~
+
+# Startup & State Rehydration
+
+Persistent records are not merely loaded into arrays. On startup, CrisisMesh rebuilds the runtime indexing and scheduling structures required for the current lifecycle state.
+
+~~~mermaid
+flowchart TD
+    START["Program Start"]
+    CITY["Seed 20-node / 31-road city graph"]
+    OPS["Seed responders, shelters and supplies"]
+    LOADU["Load users.txt"]
+    LOADI["Load incidents.txt"]
+    LOADH["Load user_history.txt"]
+    HASH["Rebuild username Hash Table"]
+    LOOP["For each persisted incident"]
+    LOC["Resolve location using Binary Search"]
+    IHASH["Rebuild incident Hash Table"]
+    STATE{"Persisted status?"}
+    Q["QUEUED → enqueue into FIFO Queue"]
+    HEAP["PRIORITIZED → push into Max Heap"]
+    LIVE["Active assignment → restore responder strength"]
+    ROUTE["Recalculate active route against fresh graph"]
+    CLOSED["CLOSED / RESOLVED → rebuild Linked List + AVL"]
+    ALLOC["Restore shelter occupancy / supply consumption"]
+    READY["Runtime state ready"]
+
+    START --> CITY --> OPS
+    OPS --> LOADU --> LOADI --> LOADH --> HASH --> LOOP
+    LOOP --> LOC --> IHASH --> STATE
+    STATE --> Q
+    STATE --> HEAP
+    STATE --> LIVE --> ROUTE
+    STATE --> CLOSED
+    STATE --> ALLOC
+    Q --> READY
+    HEAP --> READY
+    ROUTE --> READY
+    CLOSED --> READY
+    ALLOC --> READY
+~~~
+
+This recovery path makes the console application restart-safe for users, incident snapshots, audit history, scheduling state, active assignments, shelter occupancy, and consumed supplies.
 
 ---
 
@@ -408,6 +703,56 @@ flowchart TD
 | Rescue | **Search & Rescue Response** | Rescue Team |
 | Flood | **Search & Rescue Response** | Rescue Team |
 | Structural | **Search & Rescue Response** | Rescue Team |
+
+---
+
+# Dijkstra Internal Routing Flow
+
+CrisisMesh uses a manual Min Heap as the Dijkstra frontier. Blocked roads are skipped, and the algorithm stores parent node / parent edge information so the selected route can be reconstructed and attached to the incident.
+
+~~~mermaid
+flowchart TD
+    S["Source responder/location"]
+    INIT["Initialize best[] = ∞<br/>parent[] = -1<br/>best[source] = 0"]
+    PUSH["Push source into manual Min Heap"]
+    EMPTY{"Min Heap empty?"}
+    POP["Pop lowest-cost frontier node"]
+    DONE{"Already finalized?"}
+    TARGET{"Target reached?"}
+    NEI["Scan adjacency-list neighbors"]
+    BLOCK{"Road blocked?"}
+    RELAX{"New path improves best[v]?"}
+    UPDATE["Update best[v]<br/>parent[v]<br/>parentEdge[v]"]
+    REPUSH["Push improved candidate"]
+    RECON["Reconstruct nodes + edges"]
+    METRICS["Accumulate distance / travel time / operational cost"]
+    OK["Return reachable RouteResult"]
+    FAIL["Return unreachable RouteResult"]
+
+    S --> INIT --> PUSH --> EMPTY
+    EMPTY -- Yes --> FAIL
+    EMPTY -- No --> POP --> DONE
+    DONE -- Yes --> EMPTY
+    DONE -- No --> TARGET
+    TARGET -- Yes --> RECON --> METRICS --> OK
+    TARGET -- No --> NEI --> BLOCK
+    BLOCK -- Yes --> NEI
+    BLOCK -- No --> RELAX
+    RELAX -- Yes --> UPDATE --> REPUSH --> NEI
+    RELAX -- No --> NEI
+    NEI --> EMPTY
+~~~
+
+### Route metrics
+
+CrisisMesh exposes two route concepts:
+
+| Mode | Objective |
+|---|---|
+| Physical shortest-distance route | Minimize total road distance; used for incident response recommendation, assignment, rerouting and shelter selection |
+| Operational route cost | Retains distance, travel time, risk, congestion and road-capacity penalty as contextual route-quality information |
+
+Responder comparison in the current Incident Analysis flow is ordered by **reachability → physical distance → travel time → responder ID**.
 
 ---
 
@@ -609,6 +954,63 @@ R-015 → R-008 → R-001
 ~~~
 
 This provides a direct operational use of the Stack data structure.
+
+---
+
+# Shelter & Supply Allocation Flows
+
+## Shelter allocation
+
+~~~mermaid
+flowchart TD
+    I["Active incident"]
+    CHECK["Reject closed / resolved / cancelled / completed state"]
+    PEOPLE["Required places = max(victim count, 1)"]
+    SCAN["Scan shelter Array"]
+    ACTIVE{"Shelter operational?"}
+    CAP{"Enough free capacity?"}
+    PATH["Dijkstra shortest-distance path<br/>incident → shelter"]
+    REACH{"Reachable?"}
+    BEST["Keep nearest valid shelter"]
+    ANY{"Candidate found?"}
+    OCC["Increase shelter occupancy"]
+    LINK["Store shelterId in incident"]
+    SAVE["Persist incident snapshot"]
+    FAIL["Allocation rejected"]
+
+    I --> CHECK --> PEOPLE --> SCAN --> ACTIVE
+    ACTIVE -- No --> SCAN
+    ACTIVE -- Yes --> CAP
+    CAP -- No --> SCAN
+    CAP -- Yes --> PATH --> REACH
+    REACH -- No --> SCAN
+    REACH -- Yes --> BEST --> SCAN
+    SCAN --> ANY
+    ANY -- No --> FAIL
+    ANY -- Yes --> OCC --> LINK --> SAVE
+~~~
+
+## Supply allocation
+
+~~~mermaid
+flowchart TD
+    I["Active incident"]
+    VALID["Validate lifecycle + quantity > 0"]
+    SCAN["Scan supply-resource Array"]
+    TYPE{"Requested type found?"}
+    STOCK{"Stock ≥ requested quantity?"}
+    DEC["Decrease resource quantity"]
+    TRACK["Record type + cumulative quantity on incident"]
+    SAVE["Persist incident snapshot + audit entry"]
+    NOTFOUND["Resource type not found"]
+    LOW["Insufficient stock"]
+
+    I --> VALID --> SCAN --> TYPE
+    TYPE -- No --> NOTFOUND
+    TYPE -- Yes --> STOCK
+    STOCK -- No --> LOW
+    STOCK -- Yes --> DEC --> TRACK --> SAVE
+~~~
 
 ---
 
@@ -927,6 +1329,29 @@ flowchart LR
 ~~~
 
 Direct messages require a valid registered User ID. Broadcasts are visible to all registered users.
+
+---
+
+# Build & Verification Pipeline
+
+~~~mermaid
+flowchart LR
+    PUSH["Push / Pull Request<br/>main"]
+    LINUX["Ubuntu Runner"]
+    WIN["Windows 2022 Runner"]
+    LC["CMake configure<br/>Ninja Release"]
+    WC["MSVC environment<br/>CMake + Ninja Release"]
+    LB["Build crisismesh_console<br/>+ dsa_smoke"]
+    WB["Build crisismesh_console<br/>+ dsa_smoke"]
+    LT["CTest<br/>dsa_smoke"]
+    WT["CTest<br/>dsa_smoke"]
+    PASS["Cross-platform quality gate"]
+
+    PUSH --> LINUX --> LC --> LB --> LT --> PASS
+    PUSH --> WIN --> WC --> WB --> WT --> PASS
+~~~
+
+The CI workflow validates the same codebase on both Linux and Windows, catching compiler, portability, and regression issues before the repository is considered healthy.
 
 ---
 
