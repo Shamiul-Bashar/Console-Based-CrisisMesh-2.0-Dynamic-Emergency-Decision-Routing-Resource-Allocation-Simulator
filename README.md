@@ -28,6 +28,16 @@ The system contains two operational portals:
 
 The city is deliberately compact: **20 shared locations connected by 31 bidirectional roads**. This is large enough to demonstrate graph algorithms but small enough to inspect and explain during a project showcase or viva.
 
+## Project Presentation & Report
+
+The final **project presentation (PPT)** and **project report** are available in the shared Google Drive folder below:
+
+[![Project Files](https://img.shields.io/badge/Google_Drive-Project_Presentation_%26_Report-4285F4?style=for-the-badge&logo=googledrive&logoColor=white)](https://drive.google.com/drive/folders/1ErkPV8-4aiAVR5JvIc1allIC3IkZYNHu?usp=drive_link)
+
+**[Open Project Presentation & Report Folder](https://drive.google.com/drive/folders/1ErkPV8-4aiAVR5JvIc1allIC3IkZYNHu?usp=drive_link)**
+
+> This folder contains the presentation and report materials prepared for the CrisisMesh 2.0 project.
+
 ### Final audited baseline
 
 The current implementation includes:
